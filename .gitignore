@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+venv/
+.venv/
+
+# Data (runtime state, not code)
+data/
+*.db
+
+# macOS VM artifacts
+macos-start.log
+*.qcow2
+*.img
+
+# IDE
+.vscode/
+.idea/
+
+# Environment / secrets
+.env
+account.json
+ani_libs.bin
+
+# Claude internal
+.claude/
