@@ -206,7 +206,7 @@ The `/data` directory contains:
 > This is a manual, one-time step. No code to write — just follow the procedure.
 > **If this fails, the project cannot proceed with real AirTags.**
 
-- [x] **-1.1** Verify KVM support: VT-x confirmed, `/dev/kvm` exists. **User still needs to run `sudo usermod -aG kvm $USER` and re-login for access.**
+- [x] **-1.1** Verify KVM support: VT-x confirmed, `/dev/kvm` exists, user added to kvm group.
 - [ ] **-1.2** Set up macOS Monterey VM using Docker-OSX or OSX-KVM (see steps above)
 - [ ] **-1.3** Sign into iCloud in the VM, open FindMy, confirm AirTags appear
 - [ ] **-1.4** Install FindMy.py in the VM: `pip3 install findmy`
@@ -214,10 +214,19 @@ The `/data` directory contains:
 - [ ] **-1.6** Copy the JSON files to the host machine at `./data/devices/`
 - [ ] **-1.7** Sign out of iCloud, shut down VM
 
-### Phase 0: Project Setup
-- [ ] **0.1** Initialize project structure (directories, .gitignore, README stub)
-- [ ] **0.2** Create Python package structure with pyproject.toml or requirements.txt
-- [ ] **0.3** Create basic Dockerfile
+### Phase 0: Project Setup — DONE
+- [x] **0.1** Initialize project structure (directories, .gitignore, git repo)
+- [x] **0.2** Create Python package structure with requirements.txt
+- [x] **0.3** Create basic Dockerfile and `run.sh` (builds + runs on port 8743)
+- [x] **0.4** Set up SQLite database with schema (devices + locations tables)
+- [x] **0.5** Create async database access layer (aiosqlite)
+- [x] **0.6** Set up FastAPI app with static file serving
+- [x] **0.7** Implement device CRUD endpoints
+- [x] **0.8** Implement location query endpoints (with time range filtering)
+- [x] **0.9** Implement status endpoint
+- [x] **0.10** Create HTML page with Leaflet.js map, sidebar, device list
+- [x] **0.11** Show latest device locations as markers on the map
+- [x] **0.12** Add location history trail (polyline on map for selected device)
 
 ### Phase 1: AirTag Location Retrieval (CRITICAL - Prove Feasibility)
 > Prove that the extracted keys actually work for fetching locations on Linux.
@@ -227,39 +236,33 @@ The `/data` directory contains:
 - [ ] **1.3** Verify session persistence (login once, fetch locations on subsequent runs without 2FA)
 - [ ] **1.4** Test with multiple AirTags in a single fetch call
 
-### Phase 2: Database & Core Backend
-- [ ] **2.1** Set up SQLite database with schema (devices + locations tables)
-- [ ] **2.2** Create database access layer (async, using aiosqlite)
-- [ ] **2.3** Build the location polling service (background task using APScheduler or asyncio)
-- [ ] **2.4** Implement device management (add/remove/list devices)
-- [ ] **2.5** Wire up FindMy.py integration into the polling service
+### Phase 2: Backend Integration
+- [ ] **2.1** Build the location polling service (background task using APScheduler or asyncio)
+- [ ] **2.2** Wire up FindMy.py integration into the polling service
+- [ ] **2.3** Implement manual poll trigger endpoint
 
-### Phase 3: REST API
-- [ ] **3.1** Set up FastAPI application with static file serving
-- [ ] **3.2** Implement device CRUD endpoints
-- [ ] **3.3** Implement location query endpoints (with time range filtering)
-- [ ] **3.4** Implement manual poll trigger endpoint
-- [ ] **3.5** Implement status endpoint
+### Phase 3: UI/UX Redesign — DONE
+> Two-page SPA: Map view with config sidebar/collapsible panel, Settings page with tabs. Dark theme, fully responsive.
 
-### Phase 4: Web Frontend
-- [ ] **4.1** Create HTML page with Leaflet.js map
-- [ ] **4.2** Show latest device locations as markers on the map
-- [ ] **4.3** Add device selector / filter panel
-- [ ] **4.4** Add location history trail (polyline on map for selected device + time range)
-- [ ] **4.5** Add device management UI (add/remove devices, upload key files)
-- [ ] **4.6** Add status display (last poll time, next poll, account status)
+- [x] **3.1** Design overall layout and visual style (dark theme, CSS variables, typography, spacing)
+- [x] **3.2** Redesign config panel: device checkboxes with color dots, last-seen time, collapsible on mobile
+- [x] **3.3** Add device management UI (add/remove devices, upload key files via drag-and-drop, color picker swatches)
+- [x] **3.4** Add bottom nav bar for Map/Settings page switching
+- [x] **3.5** Improve map UX: colored markers per device, history trail polylines, popups with coordinates + timestamp
+- [x] **3.6** Add time range selector for history trails (1h, 24h, 7d, 30d, All)
+- [x] **3.7** Add empty states ("No devices yet" with add button) and delete confirmation
+- [x] **3.8** Mobile-responsive layout (collapsible config panel, touch-friendly bottom nav)
+- [x] **3.9** Dark theme (dark CARTO map tiles, dark UI throughout)
 
-### Phase 5: Docker & Deployment
-- [ ] **5.1** Write production Dockerfile (multi-stage if needed, non-root user)
-- [ ] **5.2** Add health check endpoint
-- [ ] **5.3** Handle first-run setup flow (Apple account login via web UI or env vars)
-- [ ] **5.4** Write docker-compose.yml as a convenience (even though it's single-container)
-- [ ] **5.5** Write README with setup instructions
+### Phase 4: Docker & Deployment
+- [ ] **4.1** Production Dockerfile (non-root user, health check)
+- [ ] **4.2** Handle first-run setup flow (Apple account login via web UI or env vars)
+- [ ] **4.3** Write README with setup instructions
 
-### Phase 6: Polish & Quality of Life
-- [ ] **6.1** Add proper error handling and retry logic for FindMy.py calls
-- [ ] **6.2** Handle Apple session expiry gracefully (re-auth notification)
-- [ ] **6.3** Add data retention settings (auto-delete locations older than X days)
+### Phase 5: Polish & Quality of Life
+- [ ] **5.1** Add proper error handling and retry logic for FindMy.py calls
+- [ ] **5.2** Handle Apple session expiry gracefully (re-auth notification)
+- [ ] **5.3** Add data retention settings (auto-delete locations older than X days)
 - [ ] **6.4** Add export functionality (CSV/GPX export of location history)
 
 ---

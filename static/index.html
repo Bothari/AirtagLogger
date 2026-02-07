@@ -8,13 +8,158 @@
     <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-    <div id="sidebar">
-        <h1>AirTag Logger</h1>
-        <div id="status">Loading...</div>
-        <h2>Devices</h2>
-        <ul id="device-list"></ul>
+    <div id="app">
+
+        <!-- ── Map Page ──────────────────────────────── -->
+        <div id="page-map" class="page active">
+            <div id="config-panel">
+                <div class="config-header" id="config-header">
+                    <h2>Filters</h2>
+                    <span class="config-summary" id="config-summary"></span>
+                    <button class="config-toggle" id="config-toggle" aria-label="Toggle filters">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                <div class="config-body" id="config-body">
+                    <div class="config-section-label">Devices</div>
+                    <div class="device-filter" id="device-filter-list">
+                        <!-- populated by JS -->
+                    </div>
+                    <div class="config-section-label">Time Range</div>
+                    <div class="time-range-group" id="time-range-group">
+                        <button class="time-btn" data-range="1">1h</button>
+                        <button class="time-btn active" data-range="24">24h</button>
+                        <button class="time-btn" data-range="168">7d</button>
+                        <button class="time-btn" data-range="720">30d</button>
+                        <button class="time-btn" data-range="0">All</button>
+                    </div>
+                </div>
+            </div>
+            <div id="map"></div>
+            <!-- Map empty state overlay -->
+            <div id="map-empty" style="display:none;">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                <p>No devices yet</p>
+                <button class="btn-add" id="btn-go-add">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Add Device
+                </button>
+            </div>
+        </div>
+
+        <!-- ── Settings Page ─────────────────────────── -->
+        <div id="page-settings" class="page">
+            <div class="settings-header">
+                <h1>Settings</h1>
+            </div>
+            <div class="tab-bar">
+                <button class="tab-btn active" data-tab="tab-devices">Devices</button>
+                <button class="tab-btn" data-tab="tab-general">General</button>
+            </div>
+
+            <!-- Devices Tab -->
+            <div class="tab-content active" id="tab-devices">
+                <div id="settings-device-list">
+                    <!-- populated by JS -->
+                </div>
+                <div class="empty-state" id="settings-empty" style="display:none;">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                        <path d="M16 7V5a4 4 0 00-8 0v2"></path>
+                    </svg>
+                    <p>No devices added.<br>Click + to add your first AirTag.</p>
+                </div>
+                <button class="btn-add" id="btn-add-device">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    Add Device
+                </button>
+            </div>
+
+            <!-- General Tab -->
+            <div class="tab-content" id="tab-general">
+                <div class="setting-row">
+                    <span class="setting-label">Poll interval</span>
+                    <input type="number" id="poll-interval" value="15" min="1" max="1440">
+                    <span class="setting-unit">min</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Bottom Nav ─────────────────────────────── -->
+        <nav id="bottom-nav">
+            <button class="nav-item active" data-page="page-map">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
+                    <line x1="8" y1="2" x2="8" y2="18"></line>
+                    <line x1="16" y1="6" x2="16" y2="22"></line>
+                </svg>
+                Map
+            </button>
+            <button class="nav-item" data-page="page-settings">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"></path>
+                </svg>
+                Settings
+            </button>
+        </nav>
     </div>
-    <div id="map"></div>
+
+    <!-- ── Add Device Modal ───────────────────────────── -->
+    <div class="modal-overlay" id="modal-add">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add Device</h3>
+                <button class="modal-close" id="modal-close">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                </button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="device-name">Name</label>
+                    <input type="text" id="device-name" placeholder="e.g. Car Keys" autocomplete="off">
+                </div>
+                <div class="form-group">
+                    <label>Color</label>
+                    <div class="color-swatches" id="color-swatches">
+                        <button class="color-swatch selected" data-color="#4f8cff" style="background:#4f8cff"></button>
+                        <button class="color-swatch" data-color="#ff5c5c" style="background:#ff5c5c"></button>
+                        <button class="color-swatch" data-color="#34d399" style="background:#34d399"></button>
+                        <button class="color-swatch" data-color="#fbbf24" style="background:#fbbf24"></button>
+                        <button class="color-swatch" data-color="#a78bfa" style="background:#a78bfa"></button>
+                        <button class="color-swatch" data-color="#f472b6" style="background:#f472b6"></button>
+                        <button class="color-swatch" data-color="#fb923c" style="background:#fb923c"></button>
+                        <button class="color-swatch" data-color="#22d3ee" style="background:#22d3ee"></button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Key File (.json)</label>
+                    <div class="drop-zone" id="drop-zone">
+                        <div class="drop-icon">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                        </div>
+                        <p>Drag & drop .json file here<br>or click to browse</p>
+                        <input type="file" id="file-input" accept=".json" hidden>
+                        <div class="file-name" id="file-name" style="display:none"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" id="btn-modal-cancel">Cancel</button>
+                <button class="btn-submit" id="btn-modal-submit" disabled>Add</button>
+            </div>
+        </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/app.js"></script>
 </body>
