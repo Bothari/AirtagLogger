@@ -102,6 +102,13 @@ async def device_locations(
     return [dict(row) for row in rows]
 
 
+@router.post("/poll")
+async def trigger_poll():
+    from app.poller import poll_once
+    result = await poll_once()
+    return result
+
+
 @router.get("/status")
 async def status(db: aiosqlite.Connection = Depends(get_db)):
     device_count = await db.execute("SELECT COUNT(*) FROM devices")

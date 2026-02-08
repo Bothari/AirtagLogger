@@ -236,10 +236,13 @@ The `/data` directory contains:
 - [x] **1.4** Test with multiple AirTags in a single fetch call
 - [x] **1.5** Run `test_findmy.py` with real extracted keys to verify end-to-end location fetching works
 
-### Phase 2: Backend Integration
-- [ ] **2.1** Build the location polling service (background task using APScheduler or asyncio)
-- [ ] **2.2** Wire up FindMy.py integration into the polling service
-- [ ] **2.3** Implement manual poll trigger endpoint
+### Phase 2: Backend Integration — DONE
+> Polling service fetches locations every 15min (configurable via POLL_INTERVAL_MINUTES env var).
+> Tested end-to-end: Golf Clubs AirTag location stored and served via API.
+
+- [x] **2.1** Build the location polling service (asyncio background task in `app/poller.py`)
+- [x] **2.2** Wire up FindMy.py integration into the polling service
+- [x] **2.3** Implement manual poll trigger endpoint (`POST /api/poll`)
 
 ### Phase 3: UI/UX Redesign — DONE
 > Two-page SPA: Map view with config sidebar/collapsible panel, Settings page with tabs. Dark theme, fully responsive.
