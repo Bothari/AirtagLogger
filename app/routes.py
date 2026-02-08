@@ -3,6 +3,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from pydantic import BaseModel
 
 import aiosqlite
 
@@ -10,6 +11,40 @@ from app.database import get_db
 
 router = APIRouter()
 
+
+# ── Auth endpoints ────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+class TwoFactorRequest(BaseModel):
+    method_id: int
+    code: str
+
+
+@router.get("/auth/status")
+async def auth_status():
+    from app.poller import is_authenticated, get_account_name
+    return {
+        "authenticated": is_authenticated(),
+        "account": get_account_name(),
+    }
+
+
+@router.post("/auth/login")
+async def auth_login(req: LoginRequest):
+    from app.poller import login
+    return await login(req.email, req.password)
+
+
+@router.post("/auth/2fa")
+async def auth_2fa(req: TwoFactorRequest):
+    from app.poller import submit_2fa
+    return await submit_2fa(req.method_id, req.code)
+
+
+# ── Device endpoints ──────────────────────────────────────
 
 @router.get("/devices")
 async def list_devices(db: aiosqlite.Connection = Depends(get_db)):

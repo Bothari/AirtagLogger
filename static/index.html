@@ -10,6 +10,46 @@
 <body>
     <div id="app">
 
+        <!-- ── Setup Page (Apple ID auth) ────────────── -->
+        <div id="page-setup" class="page">
+            <div class="setup-container">
+                <div class="setup-logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path>
+                        <circle cx="12" cy="10" r="3"></circle>
+                    </svg>
+                    <h1>AirTag Logger</h1>
+                    <p>Sign in with your Apple ID to start tracking</p>
+                </div>
+
+                <!-- Step 1: Login -->
+                <div id="setup-login" class="setup-step">
+                    <div class="form-group">
+                        <label for="apple-email">Apple ID</label>
+                        <input type="email" id="apple-email" placeholder="email@example.com" autocomplete="email">
+                    </div>
+                    <div class="form-group">
+                        <label for="apple-password">Password</label>
+                        <input type="password" id="apple-password" placeholder="Password" autocomplete="current-password">
+                    </div>
+                    <div id="login-error" class="setup-error" style="display:none"></div>
+                    <button class="btn-submit setup-btn" id="btn-login">Sign In</button>
+                </div>
+
+                <!-- Step 2: 2FA -->
+                <div id="setup-2fa" class="setup-step" style="display:none">
+                    <p class="setup-2fa-label">Choose a verification method:</p>
+                    <div id="2fa-methods" class="setup-2fa-methods"></div>
+                    <div class="form-group">
+                        <label for="2fa-code">Verification Code</label>
+                        <input type="text" id="2fa-code" placeholder="123456" autocomplete="one-time-code" inputmode="numeric" maxlength="6">
+                    </div>
+                    <div id="2fa-error" class="setup-error" style="display:none"></div>
+                    <button class="btn-submit setup-btn" id="btn-2fa-submit">Verify</button>
+                </div>
+            </div>
+        </div>
+
         <!-- ── Map Page ──────────────────────────────── -->
         <div id="page-map" class="page active">
             <div id="config-panel">

@@ -259,7 +259,7 @@ The `/data` directory contains:
 
 ### Phase 4: Docker & Deployment
 - [ ] **4.1** Production Dockerfile (non-root user, health check)
-- [ ] **4.2** Handle first-run setup flow (Apple account login via web UI or env vars)
+- [x] **4.2** Handle first-run setup flow (Apple account login via web UI with 2FA support)
 - [ ] **4.3** Write README with setup instructions
 
 ### Phase 5: Polish & Quality of Life

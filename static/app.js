@@ -6,14 +6,15 @@ let mapLayers = { markers: [], trails: [] };
 let map;
 
 // ── Init ─────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
     initMap();
     initNav();
     initConfigPanel();
     initTimeRange();
     initSettingsTabs();
     initAddDeviceModal();
-    loadDevices();
+    initAuth();
+    await checkAuth();
 });
 
 // ── Map ──────────────────────────────────────────────────
@@ -450,4 +451,154 @@ function timeAgo(iso) {
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
+}
+
+// ── Auth Flow ────────────────────────────────────────────
+let selected2faMethod = null;
+
+async function checkAuth() {
+    try {
+        const status = await fetchJSON("/api/auth/status");
+        if (status.authenticated) {
+            showApp();
+        } else {
+            showSetup();
+        }
+    } catch {
+        showSetup();
+    }
+}
+
+function showSetup() {
+    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+    document.getElementById("page-setup").classList.add("active");
+    document.getElementById("bottom-nav").style.display = "none";
+}
+
+function showApp() {
+    document.getElementById("page-setup").classList.remove("active");
+    document.getElementById("bottom-nav").style.display = "";
+    navigateTo("page-map");
+    loadDevices();
+}
+
+function initAuth() {
+    const loginBtn = document.getElementById("btn-login");
+    const submitBtn = document.getElementById("btn-2fa-submit");
+
+    loginBtn.addEventListener("click", handleLogin);
+    submitBtn.addEventListener("click", handle2fa);
+
+    // Enter key support
+    document.getElementById("apple-password").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") handleLogin();
+    });
+    document.getElementById("2fa-code").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") handle2fa();
+    });
+}
+
+async function handleLogin() {
+    const email = document.getElementById("apple-email").value.trim();
+    const password = document.getElementById("apple-password").value;
+    const errorEl = document.getElementById("login-error");
+    const btn = document.getElementById("btn-login");
+
+    if (!email || !password) return;
+
+    errorEl.style.display = "none";
+    btn.disabled = true;
+    btn.textContent = "Signing in...";
+
+    try {
+        const res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email, password }),
+        });
+        const data = await res.json();
+
+        if (data.status === "ok") {
+            showApp();
+        } else if (data.status === "2fa") {
+            show2faStep(data.methods);
+        } else {
+            errorEl.textContent = data.message || "Login failed";
+            errorEl.style.display = "";
+        }
+    } catch (e) {
+        errorEl.textContent = "Network error: " + e.message;
+        errorEl.style.display = "";
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Sign In";
+    }
+}
+
+function show2faStep(methods) {
+    document.getElementById("setup-login").style.display = "none";
+    document.getElementById("setup-2fa").style.display = "";
+
+    const container = document.getElementById("2fa-methods");
+    container.innerHTML = "";
+
+    methods.forEach(m => {
+        const btn = document.createElement("button");
+        btn.className = "method-btn" + (methods.length === 1 ? " selected" : "");
+        btn.dataset.id = m.id;
+
+        if (m.type === "trusted_device") {
+            btn.textContent = "Trusted Device";
+        } else {
+            btn.textContent = "SMS to " + m.phone;
+        }
+
+        btn.addEventListener("click", () => {
+            container.querySelectorAll(".method-btn").forEach(b => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            selected2faMethod = m.id;
+        });
+
+        container.appendChild(btn);
+    });
+
+    if (methods.length === 1) {
+        selected2faMethod = methods[0].id;
+    }
+
+    document.getElementById("2fa-code").focus();
+}
+
+async function handle2fa() {
+    const code = document.getElementById("2fa-code").value.trim();
+    const errorEl = document.getElementById("2fa-error");
+    const btn = document.getElementById("btn-2fa-submit");
+
+    if (!code || selected2faMethod === null) return;
+
+    errorEl.style.display = "none";
+    btn.disabled = true;
+    btn.textContent = "Verifying...";
+
+    try {
+        const res = await fetch("/api/auth/2fa", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ method_id: selected2faMethod, code }),
+        });
+        const data = await res.json();
+
+        if (data.status === "ok") {
+            showApp();
+        } else {
+            errorEl.textContent = data.message || "Verification failed";
+            errorEl.style.display = "";
+        }
+    } catch (e) {
+        errorEl.textContent = "Network error: " + e.message;
+        errorEl.style.display = "";
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Verify";
+    }
 }

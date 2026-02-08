@@ -612,6 +612,101 @@ input { font-family: inherit; color: inherit; }
     color: var(--text-dim);
 }
 
+/* ── Setup Page (Auth) ────────────────────────────────── */
+#page-setup {
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+
+.setup-container {
+    width: 100%;
+    max-width: 380px;
+}
+
+.setup-logo {
+    text-align: center;
+    margin-bottom: 32px;
+}
+.setup-logo svg {
+    width: 48px;
+    height: 48px;
+    color: var(--accent);
+    margin-bottom: 12px;
+}
+.setup-logo h1 {
+    font-size: 1.4rem;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.setup-logo p {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
+.setup-step .form-group input[type="email"],
+.setup-step .form-group input[type="password"],
+.setup-step .form-group input[type="text"] {
+    width: 100%;
+    padding: 12px 14px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.setup-step .form-group input:focus {
+    border-color: var(--accent);
+}
+
+.setup-btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 0.9rem;
+    margin-top: 8px;
+}
+
+.setup-error {
+    padding: 10px 14px;
+    background: var(--danger-dim);
+    color: var(--danger);
+    border-radius: var(--radius-sm);
+    font-size: 0.82rem;
+    margin-bottom: 10px;
+}
+
+.setup-2fa-label {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+}
+
+.setup-2fa-methods {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    margin-bottom: 18px;
+}
+
+.method-btn {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    transition: border-color 0.12s, background 0.12s;
+    text-align: left;
+}
+.method-btn:hover { border-color: var(--text-dim); }
+.method-btn.selected {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+
 /* ── Scrollbar ────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
