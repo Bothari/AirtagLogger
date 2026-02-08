@@ -67,7 +67,7 @@ Monterey is the sweet spot: best VM support and simplest key extraction.
    - Open the FindMy app — wait for your AirTags to sync (may take a few minutes)
    - Open Terminal
    - Install Python: `xcode-select --install` or download from python.org
-   - Install FindMy.py: `pip3 install findmy`
+   - Install FindMy.py: `pip3 install findmy` (if deps like bleak/pyobjc fail to compile, use `pip3 install <pkg> --only-binary=:all:`)
    - Extract keys: `python3 -m findmy decrypt --out-dir ~/Desktop/devices/`
    - This pops up a keychain password prompt — enter your macOS login password
 4. **Copy JSON files out of the VM**:
@@ -202,17 +202,16 @@ The `/data` directory contains:
 
 ## Project Phases & Tasks
 
-### Phase -1: AirTag Key Extraction via macOS VM (DO THIS FIRST)
+### Phase -1: AirTag Key Extraction via macOS VM — DONE
 > This is a manual, one-time step. No code to write — just follow the procedure.
-> **If this fails, the project cannot proceed with real AirTags.**
 
 - [x] **-1.1** Verify KVM support: VT-x confirmed, `/dev/kvm` exists, user added to kvm group.
-- [ ] **-1.2** Set up macOS Monterey VM using Docker-OSX or OSX-KVM (see steps above)
-- [ ] **-1.3** Sign into iCloud in the VM, open FindMy, confirm AirTags appear
-- [ ] **-1.4** Install FindMy.py in the VM: `pip3 install findmy`
-- [ ] **-1.5** Extract keys: `python3 -m findmy decrypt --out-dir ~/Desktop/devices/`
-- [ ] **-1.6** Copy the JSON files to the host machine at `./data/devices/`
-- [ ] **-1.7** Sign out of iCloud, shut down VM
+- [x] **-1.2** Set up macOS Monterey VM using Docker-OSX or OSX-KVM (see steps above)
+- [x] **-1.3** Sign into iCloud in the VM, open FindMy, confirm AirTags appear
+- [x] **-1.4** Install FindMy.py in the VM: `pip3 install findmy`
+- [x] **-1.5** Extract keys: `python3 -m findmy decrypt --out-dir ~/Desktop/devices/`
+- [x] **-1.6** Copy the JSON files to the host machine at `./data/devices/`
+- [x] **-1.7** Sign out of iCloud, shut down VM
 
 ### Phase 0: Project Setup — DONE
 - [x] **0.1** Initialize project structure (directories, .gitignore, git repo)
@@ -228,13 +227,14 @@ The `/data` directory contains:
 - [x] **0.11** Show latest device locations as markers on the map
 - [x] **0.12** Add location history trail (polyline on map for selected device)
 
-### Phase 1: AirTag Location Retrieval (CRITICAL - Prove Feasibility)
-> Prove that the extracted keys actually work for fetching locations on Linux.
+### Phase 1: AirTag Location Retrieval (CRITICAL - Prove Feasibility) — DONE
+> Proved that extracted keys work for fetching locations on Linux. Golf Clubs AirTag returned lat/lon successfully.
 
-- [ ] **1.1** Write a standalone test script that authenticates with Apple and fetches a single AirTag location using FindMy.py
-- [ ] **1.2** Handle first-time login with 2FA interactively (via terminal for initial setup)
-- [ ] **1.3** Verify session persistence (login once, fetch locations on subsequent runs without 2FA)
-- [ ] **1.4** Test with multiple AirTags in a single fetch call
+- [x] **1.1** Write a standalone test script that authenticates with Apple and fetches a single AirTag location using FindMy.py
+- [x] **1.2** Handle first-time login with 2FA interactively (via terminal for initial setup)
+- [x] **1.3** Verify session persistence (login once, fetch locations on subsequent runs without 2FA)
+- [x] **1.4** Test with multiple AirTags in a single fetch call
+- [x] **1.5** Run `test_findmy.py` with real extracted keys to verify end-to-end location fetching works
 
 ### Phase 2: Backend Integration
 - [ ] **2.1** Build the location polling service (background task using APScheduler or asyncio)
