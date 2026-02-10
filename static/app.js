@@ -5,6 +5,9 @@ let activeTimeRange = 24; // hours, 0 = all
 let mapLayers = { markers: [], trails: [] };
 let clusterGroup = null;
 let latestPositions = {}; // deviceId -> {lat, lng}
+let locationCache = {}; // deviceId -> [{latitude, longitude, timestamp, _ts}, ...]
+let scrubberMin = 0;
+let scrubberMax = 0;
 let map;
 
 // ── Init ─────────────────────────────────────────────────
@@ -15,6 +18,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initTimeRange();
     initSettingsTabs();
     initGeneralSettings();
+    initScrubber();
     initAddDeviceModal();
     initAuth();
     await checkAuth();
@@ -553,18 +557,108 @@ function clearMapLayers() {
 
 async function refreshMap() {
     clearMapLayers();
+    locationCache = {};
 
     const visible = devices.filter(d => selectedDevices.has(d.id));
-    if (visible.length === 0) return;
-
-    // Split into enabled and disabled for different styling
-    const enabledIds = new Set(devices.filter(d => d.enabled !== 0).map(d => d.id));
+    if (visible.length === 0) {
+        updateScrubber();
+        return;
+    }
 
     // Show loading indicator
     const loadingEl = document.createElement("div");
     loadingEl.className = "map-loading";
     loadingEl.innerHTML = '<div class="spinner"></div> Loading...';
     document.getElementById("page-map").appendChild(loadingEl);
+
+    await Promise.all(visible.map(async (device) => {
+        const params = new URLSearchParams({ limit: "1000" });
+        if (activeTimeRange > 0) {
+            const from = new Date(Date.now() - activeTimeRange * 3600 * 1000);
+            params.set("from_ts", from.toISOString());
+        }
+
+        let locations;
+        try {
+            locations = await fetchJSON(`/api/locations/${device.id}?${params}`);
+        } catch {
+            return;
+        }
+        if (!locations.length) return;
+
+        // Pre-compute timestamps for scrubber performance
+        locationCache[device.id] = locations.map(l => ({
+            ...l,
+            _ts: parseTS(l.timestamp).getTime(),
+        }));
+    }));
+
+    loadingEl.remove();
+    updateScrubber();
+    renderMapAtTime(null); // Live mode
+}
+
+// ── Timeline Scrubber ────────────────────────────────────
+function initScrubber() {
+    const slider = document.getElementById("scrubber-slider");
+    let rafId = null;
+
+    slider.addEventListener("input", () => {
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+            const val = parseInt(slider.value, 10);
+            const label = document.getElementById("scrubber-label");
+            if (val >= scrubberMax) {
+                label.textContent = "Live";
+                renderMapAtTime(null);
+            } else {
+                label.textContent = formatTimestamp(new Date(val * 1000).toISOString());
+                renderMapAtTime(val * 1000);
+            }
+            rafId = null;
+        });
+    });
+}
+
+function updateScrubber() {
+    const bar = document.getElementById("scrubber-bar");
+    const slider = document.getElementById("scrubber-slider");
+    const label = document.getElementById("scrubber-label");
+
+    let minTs = Infinity;
+    let maxTs = -Infinity;
+
+    for (const deviceId in locationCache) {
+        for (const loc of locationCache[deviceId]) {
+            if (loc._ts < minTs) minTs = loc._ts;
+            if (loc._ts > maxTs) maxTs = loc._ts;
+        }
+    }
+
+    if (minTs === Infinity || minTs === maxTs) {
+        bar.style.display = "none";
+        return;
+    }
+
+    scrubberMin = Math.floor(minTs / 1000);
+    scrubberMax = Math.ceil(maxTs / 1000);
+
+    slider.min = scrubberMin;
+    slider.max = scrubberMax;
+    slider.value = scrubberMax;
+    label.textContent = "Live";
+    bar.style.display = "flex";
+}
+
+function renderMapAtTime(timeMs) {
+    clearMapLayers();
+
+    const visible = devices.filter(d => selectedDevices.has(d.id));
+    if (visible.length === 0) return;
+
+    const enabledIds = new Set(devices.filter(d => d.enabled !== 0).map(d => d.id));
+    const isLive = timeMs === null;
+    const splitTime = isLive ? Infinity : timeMs;
 
     clusterGroup = L.markerClusterGroup({
         maxClusterRadius: 40,
@@ -582,73 +676,88 @@ async function refreshMap() {
 
     const allPoints = [];
 
-    await Promise.all(visible.map(async (device) => {
-        const params = new URLSearchParams({ limit: "1000" });
-        if (activeTimeRange > 0) {
-            const from = new Date(Date.now() - activeTimeRange * 3600 * 1000);
-            params.set("from_ts", from.toISOString());
-        }
+    visible.forEach(device => {
+        const locations = locationCache[device.id];
+        if (!locations || !locations.length) return;
 
-        let locations;
-        try {
-            locations = await fetchJSON(`/api/locations/${device.id}?${params}`);
-        } catch {
-            return;
-        }
-        if (!locations.length) return;
-
-        // Trail polyline (not clustered)
         const isDisabled = !enabledIds.has(device.id);
-        const latlngs = locations.map(l => [l.latitude, l.longitude]);
-        const trail = L.polyline(latlngs, {
-            color: isDisabled ? "#555" : device.color,
-            weight: 2.5,
-            opacity: isDisabled ? 0.25 : 0.5,
-            dashArray: isDisabled ? "6 4" : null,
-        }).addTo(map);
-        mapLayers.trails.push(trail);
+        const color = isDisabled ? "#555" : device.color;
 
-        // Latest position marker (custom divIcon for clustering support)
-        const latest = locations[0];
-        const markerColor = isDisabled ? "#555" : device.color;
-        const marker = L.marker([latest.latitude, latest.longitude], {
-            icon: L.divIcon({
-                className: "device-marker-icon",
-                html: `<div style="background:${markerColor};opacity:${isDisabled ? 0.4 : 0.9}"></div>`,
-                iconSize: [16, 16],
-                iconAnchor: [8, 8],
-                popupAnchor: [0, -10],
-            }),
-        }).bindPopup(
-            `<b>${esc(device.name)}</b>${isDisabled ? " <i>(Disabled)</i>" : ""}<br>
-             ${latest.latitude.toFixed(5)}, ${latest.longitude.toFixed(5)}<br>
-             <small>${formatTimestamp(latest.timestamp)}</small>`
-        );
-        clusterGroup.addLayer(marker);
+        // Split locations at scrub time (locations sorted DESC — newest first)
+        const before = []; // timestamp <= scrubTime (colored, "past")
+        const after = [];  // timestamp > scrubTime (grey, "future")
 
-        // Device name label (not clustered, added directly to map)
-        const label = L.tooltip({
-            permanent: true,
-            direction: "top",
-            offset: [0, -12],
-            className: "device-label" + (isDisabled ? " device-label-disabled" : ""),
-        }).setContent(device.name + (isDisabled ? " (off)" : "")).setLatLng([latest.latitude, latest.longitude]);
-        label.addTo(map);
-        mapLayers.markers.push(label);
+        for (const loc of locations) {
+            if (loc._ts <= splitTime) {
+                before.push(loc);
+            } else {
+                after.push(loc);
+            }
+        }
 
-        // Store latest position for zoom-to-device
-        latestPositions[device.id] = { lat: latest.latitude, lng: latest.longitude };
+        // Colored trail (past / before scrub time)
+        if (before.length > 0) {
+            const latlngs = before.map(l => [l.latitude, l.longitude]);
+            const trail = L.polyline(latlngs, {
+                color, weight: 2.5,
+                opacity: isDisabled ? 0.25 : 0.5,
+                dashArray: isDisabled ? "6 4" : null,
+            }).addTo(map);
+            mapLayers.trails.push(trail);
+            allPoints.push(...latlngs);
+        }
 
-        // Update last-seen in filter panel
-        updateLastSeen(device.id, latest.timestamp);
+        // Grey trail (future / after scrub time)
+        if (after.length > 0) {
+            const latlngs = after.map(l => [l.latitude, l.longitude]);
+            // Connect to nearest "before" point for visual continuity
+            if (before.length > 0) {
+                latlngs.push([before[0].latitude, before[0].longitude]);
+            }
+            const trail = L.polyline(latlngs, {
+                color: "#555", weight: 2, opacity: 0.25, dashArray: "6 4",
+            }).addTo(map);
+            mapLayers.trails.push(trail);
+        }
 
-        allPoints.push(...latlngs);
-    }));
+        // Marker at scrub position (newest point at or before scrub time)
+        const markerLoc = before.length > 0 ? before[0] : null;
+        if (markerLoc) {
+            const markerColor = isDisabled ? "#555" : device.color;
+            const marker = L.marker([markerLoc.latitude, markerLoc.longitude], {
+                icon: L.divIcon({
+                    className: "device-marker-icon",
+                    html: `<div style="background:${markerColor};opacity:${isDisabled ? 0.4 : 0.9}"></div>`,
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8],
+                    popupAnchor: [0, -10],
+                }),
+            }).bindPopup(
+                `<b>${esc(device.name)}</b>${isDisabled ? " <i>(Disabled)</i>" : ""}<br>
+                 ${markerLoc.latitude.toFixed(5)}, ${markerLoc.longitude.toFixed(5)}<br>
+                 <small>${formatTimestamp(markerLoc.timestamp)}</small>`
+            );
+            clusterGroup.addLayer(marker);
+
+            const label = L.tooltip({
+                permanent: true,
+                direction: "top",
+                offset: [0, -12],
+                className: "device-label" + (isDisabled ? " device-label-disabled" : ""),
+            }).setContent(device.name + (isDisabled ? " (off)" : "")).setLatLng([markerLoc.latitude, markerLoc.longitude]);
+            label.addTo(map);
+            mapLayers.markers.push(label);
+
+            latestPositions[device.id] = { lat: markerLoc.latitude, lng: markerLoc.longitude };
+            if (isLive) updateLastSeen(device.id, markerLoc.timestamp);
+        }
+
+        if (isLive) allPoints.push(...(locations.map(l => [l.latitude, l.longitude])));
+    });
 
     map.addLayer(clusterGroup);
-    loadingEl.remove();
 
-    if (allPoints.length > 0) {
+    if (isLive && allPoints.length > 0) {
         map.fitBounds(L.latLngBounds(allPoints), { padding: [50, 50], maxZoom: 16 });
     }
 }
