@@ -23,8 +23,7 @@ CREATE TABLE IF NOT EXISTS locations (
     longitude   REAL NOT NULL,
     timestamp   TIMESTAMP NOT NULL,
     fetched_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    raw_report  TEXT,
-    UNIQUE(device_id, timestamp)
+    raw_report  TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_locations_device_time
@@ -41,6 +40,22 @@ MIGRATIONS = [
     "ALTER TABLE devices ADD COLUMN enabled INTEGER DEFAULT 1",
 ]
 
+DROP_UNIQUE_MIGRATION = """
+CREATE TABLE IF NOT EXISTS locations_new (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id   TEXT NOT NULL REFERENCES devices(id),
+    latitude    REAL NOT NULL,
+    longitude   REAL NOT NULL,
+    timestamp   TIMESTAMP NOT NULL,
+    fetched_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    raw_report  TEXT
+);
+INSERT OR IGNORE INTO locations_new SELECT * FROM locations;
+DROP TABLE locations;
+ALTER TABLE locations_new RENAME TO locations;
+CREATE INDEX IF NOT EXISTS idx_locations_device_time ON locations(device_id, timestamp DESC);
+"""
+
 
 async def init_db():
     os.makedirs(DATA_DIR, exist_ok=True)
@@ -52,6 +67,11 @@ async def init_db():
                 await db.execute(migration)
             except Exception:
                 pass  # Column already exists
+        # Drop UNIQUE constraint on locations if it exists
+        cursor = await db.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='locations'")
+        row = await cursor.fetchone()
+        if row and "UNIQUE" in row[0]:
+            await db.executescript(DROP_UNIQUE_MIGRATION)
         # Backfill original_name for devices that don't have one
         await db.execute("UPDATE devices SET original_name = name WHERE original_name IS NULL")
         await db.commit()

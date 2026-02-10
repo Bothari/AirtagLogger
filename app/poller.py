@@ -212,8 +212,7 @@ async def poll_once() -> dict:
             try:
                 await db.execute(
                     """INSERT INTO locations (device_id, latitude, longitude, timestamp)
-                       VALUES (?, ?, ?, ?)
-                       ON CONFLICT(device_id, timestamp) DO UPDATE SET fetched_at = CURRENT_TIMESTAMP""",
+                       VALUES (?, ?, ?, ?)""",
                     (device_id, location.latitude, location.longitude, str(location.timestamp)),
                 )
                 await db.commit()
