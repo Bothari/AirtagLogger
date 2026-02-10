@@ -160,6 +160,20 @@ def load_accessory(key_file_path: str) -> FindMyAccessory | None:
         return None
 
 
+async def _touch_fetched_at(device_id: str):
+    """Update fetched_at on the most recent location row so 'last polled' stays current."""
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            await db.execute(
+                """UPDATE locations SET fetched_at = CURRENT_TIMESTAMP
+                   WHERE id = (SELECT id FROM locations WHERE device_id = ? ORDER BY fetched_at DESC LIMIT 1)""",
+                (device_id,),
+            )
+            await db.commit()
+    except Exception as e:
+        log.warning("Failed to touch fetched_at for %s: %s", device_id, e)
+
+
 async def poll_once() -> dict:
     """
     Fetch locations for all registered devices and store them in the database.
@@ -201,10 +215,13 @@ async def poll_once() -> dict:
         except Exception as e:
             log.error("Failed to fetch location for device %s: %s", device_id, e)
             errors += 1
+            # Still update fetched_at so "last polled" reflects the attempt
+            await _touch_fetched_at(device_id)
             continue
 
         if location is None:
             log.info("No location returned for device %s", device_id)
+            await _touch_fetched_at(device_id)
             continue
 
         # Store in database
@@ -254,7 +271,11 @@ async def _poll_loop():
         except Exception as e:
             log.exception("Poll failed: %s", e)
 
-        await asyncio.sleep(_poll_interval * 60)
+        # Sleep in short increments so interval changes take effect quickly
+        waited = 0
+        while _running and waited < _poll_interval * 60:
+            await asyncio.sleep(min(5, _poll_interval * 60 - waited))
+            waited += 5
 
 
 def start_polling():
