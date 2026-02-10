@@ -337,9 +337,8 @@ function renderSettingsDevices() {
 
         // Rename
         const originalName = d.original_name || d.name;
-        const revertHtml = d.name !== originalName
-            ? `<div class="device-setting-original">Original: ${esc(originalName)} <button class="btn-revert-name">Reset</button></div>`
-            : `<div class="device-setting-original">Original name</div>`;
+        const nameChanged = d.name !== originalName;
+        const revertHtml = `<div class="device-setting-original">Original: ${esc(originalName)}${nameChanged ? ' <button class="btn-revert-name">Reset</button>' : ''}</div>`;
 
         // Color swatches
         const swatchesHtml = SWATCH_COLORS.map(c =>
@@ -378,7 +377,14 @@ function renderSettingsDevices() {
 
         // Rename handler (blur = save)
         const renameInput = body.querySelector(".rename-input");
-        renameInput.addEventListener("blur", () => updateDeviceField(d.id, "name", renameInput.value.trim()));
+        const isEnabled = () => body.querySelector(".toggle-enabled").checked;
+        renameInput.addEventListener("blur", async () => {
+            const newName = renameInput.value.trim();
+            if (!newName) return;
+            await updateDeviceField(d.id, "name", newName);
+            const nameEl = header.querySelector(".device-card-name");
+            nameEl.textContent = newName + (isEnabled() ? "" : " (Disabled)");
+        });
         renameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") renameInput.blur(); });
 
         // Revert name handler
@@ -387,6 +393,7 @@ function renderSettingsDevices() {
             revertBtn.addEventListener("click", async () => {
                 await updateDeviceField(d.id, "name", originalName);
                 renameInput.value = originalName;
+                header.querySelector(".device-card-name").textContent = originalName + (isEnabled() ? "" : " (Disabled)");
             });
         }
 
