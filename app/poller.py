@@ -133,6 +133,16 @@ async def submit_2fa(method_id: int, code: str) -> dict:
     return {"status": "ok"}
 
 
+def get_poll_interval() -> int:
+    return _poll_interval
+
+
+def set_poll_interval(minutes: int):
+    global _poll_interval
+    _poll_interval = minutes
+    log.info("Poll interval changed to %d minutes", minutes)
+
+
 def set_account(account: AsyncAppleAccount):
     """Set the active account and ensure polling is running."""
     global _account
@@ -201,8 +211,9 @@ async def poll_once() -> dict:
         async with aiosqlite.connect(DB_PATH) as db:
             try:
                 await db.execute(
-                    """INSERT OR IGNORE INTO locations (device_id, latitude, longitude, timestamp)
-                       VALUES (?, ?, ?, ?)""",
+                    """INSERT INTO locations (device_id, latitude, longitude, timestamp)
+                       VALUES (?, ?, ?, ?)
+                       ON CONFLICT(device_id, timestamp) DO UPDATE SET fetched_at = CURRENT_TIMESTAMP""",
                     (device_id, location.latitude, location.longitude, str(location.timestamp)),
                 )
                 await db.commit()

@@ -13,6 +13,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initConfigPanel();
     initTimeRange();
     initSettingsTabs();
+    initGeneralSettings();
     initAddDeviceModal();
     initAuth();
     await checkAuth();
@@ -102,6 +103,59 @@ function initSettingsTabs() {
             document.getElementById(btn.dataset.tab).classList.add("active");
         });
     });
+}
+
+// ── General Settings ─────────────────────────────────────
+function initGeneralSettings() {
+    const pollInput = document.getElementById("poll-interval");
+    const pollBtn = document.getElementById("btn-poll-now");
+
+    // Save poll interval on change
+    let saveTimeout;
+    pollInput.addEventListener("input", () => {
+        clearTimeout(saveTimeout);
+        saveTimeout = setTimeout(async () => {
+            const val = parseInt(pollInput.value, 10);
+            if (!val || val < 1) return;
+            try {
+                await fetch("/api/settings", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ poll_interval: val }),
+                });
+                toast(`Poll interval set to ${val} min`, "success");
+            } catch (e) {
+                toast("Failed to save interval", "error");
+            }
+        }, 800);
+    });
+
+    // Poll now button
+    pollBtn.addEventListener("click", async () => {
+        pollBtn.disabled = true;
+        pollBtn.textContent = "Polling...";
+        try {
+            const res = await fetch("/api/poll", { method: "POST" });
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            const result = await res.json();
+            toast(`Poll complete: ${result.fetched} location(s) fetched`, "success");
+            await loadDevices();
+        } catch (e) {
+            toast("Poll failed: " + e.message, "error");
+        } finally {
+            pollBtn.disabled = false;
+            pollBtn.textContent = "Poll Now";
+        }
+    });
+}
+
+async function loadSettings() {
+    try {
+        const settings = await fetchJSON("/api/settings");
+        if (settings.poll_interval) {
+            document.getElementById("poll-interval").value = settings.poll_interval;
+        }
+    } catch {}
 }
 
 // ── Add Device Modal ─────────────────────────────────────
@@ -326,7 +380,8 @@ function renderSettingsDevices() {
         card.className = "device-card" + (d.enabled === 0 ? " disabled" : "");
         card.dataset.id = d.id;
 
-        const created = d.created_at ? formatDate(d.created_at) : "";
+        const lastFetched = d.last_fetched ? timeAgo(d.last_fetched) : "Never";
+        const lastFetchedExact = d.last_fetched ? formatExact(d.last_fetched) : "";
         const statusText = d.enabled === 0 ? " (Disabled)" : "";
 
         // Header (always visible, clickable to expand)
@@ -336,7 +391,7 @@ function renderSettingsDevices() {
             <span class="device-card-swatch" style="background:${esc(d.color)}"></span>
             <div class="device-card-info">
                 <div class="device-card-name">${esc(d.name)}${statusText}</div>
-                <div class="device-card-meta">${created ? "Added " + created : ""}</div>
+                <div class="device-card-meta" title="${esc(lastFetchedExact)}">Last polled: ${lastFetched}</div>
             </div>
             <svg class="device-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 
@@ -581,7 +636,10 @@ function updateLastSeen(deviceId, timestamp) {
     const items = document.querySelectorAll(".device-filter-item");
     if (items[idx]) {
         const el = items[idx].querySelector(".device-filter-lastseen");
-        if (el) el.textContent = timeAgo(timestamp);
+        if (el) {
+            el.textContent = timeAgo(timestamp);
+            el.title = formatExact(timestamp);
+        }
     }
 }
 
@@ -609,27 +667,41 @@ function esc(str) {
 }
 
 function formatDate(iso) {
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    return parseTS(iso).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function formatTimestamp(iso) {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, {
+    return parseTS(iso).toLocaleString(undefined, {
         month: "short", day: "numeric",
         hour: "2-digit", minute: "2-digit",
     });
 }
 
+// Ensure timestamps without timezone info are treated as UTC
+function parseTS(iso) {
+    if (!iso) return new Date(NaN);
+    const s = iso.trim().replace(" ", "T");
+    // If no timezone marker at end (Z, +HH:MM, -HH:MM, +00:00), assume UTC
+    if (!/Z$|[+-]\d{2}(:\d{2})?$/.test(s)) return new Date(s + "Z");
+    return new Date(s);
+}
+
 function timeAgo(iso) {
-    const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
-    if (seconds < 60) return "just now";
+    const seconds = Math.floor((Date.now() - parseTS(iso).getTime()) / 1000);
+    if (seconds < 60) return "<1m ago";
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m ago`;
     const hours = Math.floor(minutes / 60);
     if (hours < 24) return `${hours}h ago`;
     const days = Math.floor(hours / 24);
     return `${days}d ago`;
+}
+
+function formatExact(iso) {
+    return parseTS(iso).toLocaleString(undefined, {
+        year: "numeric", month: "short", day: "numeric",
+        hour: "2-digit", minute: "2-digit", second: "2-digit",
+    });
 }
 
 // ── Auth Flow ────────────────────────────────────────────
@@ -659,6 +731,7 @@ function showApp() {
     document.getElementById("bottom-nav").style.display = "";
     navigateTo("page-map");
     loadDevices();
+    loadSettings();
 }
 
 function initAuth() {

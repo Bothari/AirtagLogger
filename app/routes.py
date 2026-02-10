@@ -53,7 +53,13 @@ async def auth_2fa(req: TwoFactorRequest):
 
 @router.get("/devices")
 async def list_devices(db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT * FROM devices ORDER BY enabled DESC, name COLLATE NOCASE")
+    cursor = await db.execute("""
+        SELECT d.*, (
+            SELECT MAX(l.fetched_at) FROM locations l WHERE l.device_id = d.id
+        ) AS last_fetched
+        FROM devices d
+        ORDER BY d.enabled DESC, d.name COLLATE NOCASE
+    """)
     rows = await cursor.fetchall()
     return [dict(row) for row in rows]
 
@@ -195,3 +201,34 @@ async def status(db: aiosqlite.Connection = Depends(get_db)):
         "locations": location_count,
         "last_fetch": last_fetch,
     }
+
+
+@router.get("/settings")
+async def get_settings(db: aiosqlite.Connection = Depends(get_db)):
+    from app.poller import get_poll_interval
+    cursor = await db.execute("SELECT key, value FROM settings")
+    rows = await cursor.fetchall()
+    settings = {row["key"]: row["value"] for row in rows}
+    # Default poll interval from env/poller if not in DB
+    if "poll_interval" not in settings:
+        settings["poll_interval"] = str(get_poll_interval())
+    return settings
+
+
+class SettingsUpdate(BaseModel):
+    poll_interval: Optional[int] = None
+
+
+@router.put("/settings")
+async def update_settings(update: SettingsUpdate, db: aiosqlite.Connection = Depends(get_db)):
+    if update.poll_interval is not None:
+        val = max(1, min(1440, update.poll_interval))
+        await db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('poll_interval', ?)",
+            (str(val),),
+        )
+        await db.commit()
+        from app.poller import set_poll_interval
+        set_poll_interval(val)
+        return {"poll_interval": val}
+    return {}
