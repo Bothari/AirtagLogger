@@ -18,6 +18,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     initTimeRange();
     initSettingsTabs();
     initGeneralSettings();
+    initExportTab();
     initScrubber();
     initAddDeviceModal();
     initAuth();
@@ -161,6 +162,146 @@ async function loadSettings() {
             document.getElementById("poll-interval").value = settings.poll_interval;
         }
     } catch {}
+}
+
+// ── Export Tab ───────────────────────────────────────────
+let exportSelectedDevices = new Set();
+let exportTimeRange = 720; // hours, 0 = all
+
+function initExportTab() {
+    // Time range presets
+    const presets = document.querySelector(".export-time-presets");
+    presets.addEventListener("click", (e) => {
+        const btn = e.target.closest(".time-btn");
+        if (!btn) return;
+        presets.querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        exportTimeRange = parseInt(btn.dataset.exportRange, 10);
+        updateExportDates();
+    });
+
+    // Select all / none
+    document.getElementById("export-select-all").addEventListener("click", () => {
+        devices.forEach(d => exportSelectedDevices.add(d.id));
+        renderExportDevices();
+    });
+    document.getElementById("export-select-none").addEventListener("click", () => {
+        exportSelectedDevices.clear();
+        renderExportDevices();
+    });
+
+    // Custom date inputs clear the preset
+    document.getElementById("export-from").addEventListener("input", () => {
+        document.querySelector(".export-time-presets").querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+    });
+    document.getElementById("export-to").addEventListener("input", () => {
+        document.querySelector(".export-time-presets").querySelectorAll(".time-btn").forEach(b => b.classList.remove("active"));
+    });
+
+    // Export button
+    document.getElementById("btn-export").addEventListener("click", doExport);
+
+    // Set initial dates
+    updateExportDates();
+}
+
+function updateExportDates() {
+    const fromInput = document.getElementById("export-from");
+    const toInput = document.getElementById("export-to");
+    const now = new Date();
+    toInput.value = toLocalDatetimeStr(now);
+    if (exportTimeRange > 0) {
+        fromInput.value = toLocalDatetimeStr(new Date(now.getTime() - exportTimeRange * 3600 * 1000));
+    } else {
+        fromInput.value = "";
+    }
+}
+
+function toLocalDatetimeStr(date) {
+    // Format as YYYY-MM-DDTHH:MM for datetime-local input
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    const h = String(date.getHours()).padStart(2, "0");
+    const min = String(date.getMinutes()).padStart(2, "0");
+    return `${y}-${m}-${d}T${h}:${min}`;
+}
+
+function renderExportDevices() {
+    const container = document.getElementById("export-device-list");
+    container.innerHTML = "";
+
+    devices.forEach(d => {
+        const item = document.createElement("label");
+        item.className = "export-device-item";
+
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = exportSelectedDevices.has(d.id);
+        cb.addEventListener("change", () => {
+            if (cb.checked) exportSelectedDevices.add(d.id);
+            else exportSelectedDevices.delete(d.id);
+        });
+
+        const dot = document.createElement("span");
+        dot.className = "device-dot";
+        dot.style.background = d.color;
+
+        const name = document.createElement("span");
+        name.className = "device-filter-name";
+        name.textContent = d.name;
+
+        item.append(cb, dot, name);
+        container.appendChild(item);
+    });
+}
+
+async function doExport() {
+    if (exportSelectedDevices.size === 0) {
+        toast("Select at least one device", "error");
+        return;
+    }
+
+    const format = document.querySelector('input[name="export-format"]:checked').value;
+    const fromVal = document.getElementById("export-from").value;
+    const toVal = document.getElementById("export-to").value;
+
+    const params = new URLSearchParams();
+    params.set("devices", Array.from(exportSelectedDevices).join(","));
+    params.set("format", format);
+    if (fromVal) params.set("from_ts", new Date(fromVal).toISOString());
+    if (toVal) params.set("to_ts", new Date(toVal).toISOString());
+
+    const btn = document.getElementById("btn-export");
+    btn.disabled = true;
+    btn.textContent = "Exporting...";
+
+    try {
+        const res = await fetch(`/api/export?${params}`);
+        if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${res.status}`);
+        }
+
+        // Trigger download
+        const blob = await res.blob();
+        const disposition = res.headers.get("content-disposition") || "";
+        const match = disposition.match(/filename="(.+?)"/);
+        const filename = match ? match[1] : `export.${format}`;
+
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+
+        toast(`Exported ${format.toUpperCase()} file`, "success");
+    } catch (e) {
+        toast("Export failed: " + e.message, "error");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = "Export";
+    }
 }
 
 // ── Add Device Modal ─────────────────────────────────────
@@ -313,8 +454,14 @@ async function loadDevices() {
     // Add new devices
     devices.forEach(d => { if (!ids.has(d.id)) selectedDevices.add(d.id); });
 
+    // Auto-select all for export if first load
+    if (exportSelectedDevices.size === 0 && devices.length > 0) {
+        devices.forEach(d => exportSelectedDevices.add(d.id));
+    }
+
     renderFilterList();
     renderSettingsDevices();
+    renderExportDevices();
     updateConfigSummary();
     updateEmptyStates();
     refreshMap();

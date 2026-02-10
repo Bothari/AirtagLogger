@@ -972,6 +972,147 @@ input { font-family: inherit; color: inherit; }
 }
 .device-filter-locate svg { width: 14px; height: 14px; }
 
+/* ── Export Tab ───────────────────────────────────────── */
+.export-section {
+    margin-bottom: 24px;
+}
+.export-section-label {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+}
+.export-device-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.export-device-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: background 0.12s;
+    -webkit-tap-highlight-color: transparent;
+}
+.export-device-item:hover { background: var(--bg-hover); }
+.export-device-item input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 16px;
+    height: 16px;
+    border: 2px solid var(--border);
+    border-radius: 4px;
+    flex-shrink: 0;
+    cursor: pointer;
+    position: relative;
+    transition: border-color 0.15s, background 0.15s;
+}
+.export-device-item input[type="checkbox"]:checked {
+    background: var(--accent);
+    border-color: var(--accent);
+}
+.export-device-item input[type="checkbox"]:checked::after {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 0;
+    width: 6px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+}
+.export-select-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.export-select-btn {
+    font-size: 0.75rem;
+    color: var(--accent);
+    padding: 4px 0;
+}
+.export-select-btn:hover { text-decoration: underline; }
+
+.export-time-presets {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+}
+.export-time-custom {
+    display: flex;
+    gap: 12px;
+}
+.export-date-group {
+    flex: 1;
+}
+.export-date-group label {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+    margin-bottom: 4px;
+}
+.export-date-group input[type="datetime-local"] {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.82rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.export-date-group input:focus { border-color: var(--accent); }
+/* Dark theme color scheme for date picker */
+.export-date-group input::-webkit-calendar-picker-indicator {
+    filter: invert(0.8);
+}
+
+.export-format-group {
+    display: flex;
+    gap: 10px;
+}
+.export-format-option {
+    flex: 1;
+    cursor: pointer;
+}
+.export-format-option input { display: none; }
+.export-format-card {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 14px;
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: var(--radius);
+    transition: border-color 0.12s, background 0.12s;
+}
+.export-format-card strong {
+    font-size: 0.9rem;
+}
+.export-format-card span {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+}
+.export-format-option input:checked + .export-format-card {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+}
+.export-btn {
+    width: 100%;
+    padding: 12px;
+    font-size: 0.9rem;
+    margin-top: 4px;
+}
+
 /* ── Timeline Scrubber ────────────────────────────────── */
 #scrubber-bar {
     position: absolute;

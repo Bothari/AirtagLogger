@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-    <link rel="stylesheet" href="/style.css?v=4" />
+    <link rel="stylesheet" href="/style.css?v=5" />
 </head>
 <body>
     <div id="app">
@@ -108,6 +108,7 @@
                 <div class="tab-bar">
                     <button class="tab-btn active" data-tab="tab-devices">Devices</button>
                     <button class="tab-btn" data-tab="tab-general">General</button>
+                    <button class="tab-btn" data-tab="tab-export">Export</button>
                 </div>
 
                 <!-- Devices Tab -->
@@ -126,6 +127,59 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         Add Device
                     </button>
+                </div>
+
+                <!-- Export Tab -->
+                <div class="tab-content" id="tab-export">
+                    <div class="export-section">
+                        <div class="export-section-label">Devices</div>
+                        <div class="export-device-list" id="export-device-list">
+                            <!-- populated by JS -->
+                        </div>
+                        <div class="export-select-actions">
+                            <button class="export-select-btn" id="export-select-all">Select all</button>
+                            <button class="export-select-btn" id="export-select-none">Select none</button>
+                        </div>
+                    </div>
+                    <div class="export-section">
+                        <div class="export-section-label">Time Range</div>
+                        <div class="export-time-presets">
+                            <button class="time-btn" data-export-range="24">24h</button>
+                            <button class="time-btn" data-export-range="168">7d</button>
+                            <button class="time-btn active" data-export-range="720">30d</button>
+                            <button class="time-btn" data-export-range="0">All</button>
+                        </div>
+                        <div class="export-time-custom">
+                            <div class="export-date-group">
+                                <label>From</label>
+                                <input type="datetime-local" id="export-from">
+                            </div>
+                            <div class="export-date-group">
+                                <label>To</label>
+                                <input type="datetime-local" id="export-to">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="export-section">
+                        <div class="export-section-label">Format</div>
+                        <div class="export-format-group">
+                            <label class="export-format-option">
+                                <input type="radio" name="export-format" value="gpx" checked>
+                                <div class="export-format-card">
+                                    <strong>GPX</strong>
+                                    <span>Google Earth, Strava, OsmAnd</span>
+                                </div>
+                            </label>
+                            <label class="export-format-option">
+                                <input type="radio" name="export-format" value="csv">
+                                <div class="export-format-card">
+                                    <strong>CSV</strong>
+                                    <span>Spreadsheets, custom tools</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <button class="btn-submit export-btn" id="btn-export">Export</button>
                 </div>
 
                 <!-- General Tab -->
@@ -218,6 +272,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="/app.js?v=4"></script>
+    <script src="/app.js?v=5"></script>
 </body>
 </html>

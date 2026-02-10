@@ -1,8 +1,13 @@
+import csv
+import io
 import json
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
+from xml.etree.ElementTree import Element, SubElement, tostring
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
+from fastapi.responses import Response
 from pydantic import BaseModel
 
 import aiosqlite
@@ -232,3 +237,86 @@ async def update_settings(update: SettingsUpdate, db: aiosqlite.Connection = Dep
         set_poll_interval(val)
         return {"poll_interval": val}
     return {}
+
+
+# ── Export endpoint ──────────────────────────────────────
+
+@router.get("/export")
+async def export_data(
+    devices: str = Query(..., description="Comma-separated device IDs"),
+    format: str = Query("gpx", description="Export format: gpx or csv"),
+    from_ts: Optional[str] = None,
+    to_ts: Optional[str] = None,
+    db: aiosqlite.Connection = Depends(get_db),
+):
+    device_ids = [d.strip() for d in devices.split(",") if d.strip()]
+    if not device_ids:
+        raise HTTPException(status_code=400, detail="No devices specified")
+    if format not in ("gpx", "csv"):
+        raise HTTPException(status_code=400, detail="Format must be gpx or csv")
+
+    # Build device name lookup
+    placeholders = ",".join("?" * len(device_ids))
+    cursor = await db.execute(
+        f"SELECT id, name, color FROM devices WHERE id IN ({placeholders})", device_ids
+    )
+    device_map = {row["id"]: dict(row) for row in await cursor.fetchall()}
+    if not device_map:
+        raise HTTPException(status_code=404, detail="No matching devices found")
+
+    # Fetch locations
+    query = f"SELECT * FROM locations WHERE device_id IN ({placeholders})"
+    params: list = list(device_ids)
+    if from_ts:
+        query += " AND timestamp >= ?"
+        params.append(from_ts)
+    if to_ts:
+        query += " AND timestamp <= ?"
+        params.append(to_ts)
+    query += " ORDER BY device_id, timestamp ASC"
+
+    cursor = await db.execute(query, params)
+    rows = await cursor.fetchall()
+
+    now = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+    if format == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
+        writer.writerow(["device_name", "device_id", "latitude", "longitude", "timestamp", "fetched_at"])
+        for row in rows:
+            name = device_map.get(row["device_id"], {}).get("name", "Unknown")
+            writer.writerow([name, row["device_id"], row["latitude"], row["longitude"], row["timestamp"], row["fetched_at"]])
+        return Response(
+            content=output.getvalue(),
+            media_type="text/csv",
+            headers={"Content-Disposition": f'attachment; filename="airtag_export_{now}.csv"'},
+        )
+
+    # GPX format
+    gpx = Element("gpx", version="1.1", creator="AirTag Logger",
+                   xmlns="http://www.topografix.com/GPX/1/1")
+    metadata = SubElement(gpx, "metadata")
+    SubElement(metadata, "name").text = "AirTag Logger Export"
+    SubElement(metadata, "time").text = datetime.now(timezone.utc).isoformat()
+
+    # Group locations by device
+    by_device: dict[str, list] = {}
+    for row in rows:
+        by_device.setdefault(row["device_id"], []).append(row)
+
+    for dev_id, locs in by_device.items():
+        dev = device_map.get(dev_id, {})
+        trk = SubElement(gpx, "trk")
+        SubElement(trk, "name").text = dev.get("name", dev_id)
+        trkseg = SubElement(trk, "trkseg")
+        for loc in locs:
+            trkpt = SubElement(trkseg, "trkpt", lat=str(loc["latitude"]), lon=str(loc["longitude"]))
+            SubElement(trkpt, "time").text = str(loc["timestamp"])
+
+    xml_bytes = b'<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(gpx, encoding="unicode").encode("utf-8")
+    return Response(
+        content=xml_bytes,
+        media_type="application/gpx+xml",
+        headers={"Content-Disposition": f'attachment; filename="airtag_export_{now}.gpx"'},
+    )
