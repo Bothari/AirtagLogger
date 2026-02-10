@@ -262,10 +262,31 @@ The `/data` directory contains:
 - [x] **4.2** Handle first-run setup flow (Apple account login via web UI with 2FA support)
 - [ ] **4.3** Write README with setup instructions
 
-### Phase 5: Polish & Quality of Life
-- [ ] **5.1** Add proper error handling and retry logic for FindMy.py calls
-- [ ] **5.2** Handle Apple session expiry gracefully (re-auth notification)
-- [ ] **5.3** Add data retention settings (auto-delete locations older than X days)
+### Phase 5: UI Review & Improvements
+> Review the full UI end-to-end and polish it into something that feels finished.
+
+**Visual polish:**
+- [x] **5.1** Add loading spinners/skeleton states while fetching data (devices, locations, auth)
+- [ ] **5.2** Smooth page transitions and animations (setup → map, tab switches)
+- [ ] **5.3** Review spacing, typography, and alignment across all pages
+- [x] **5.4** Add toast/notification system for feedback (poll complete, device added, errors)
+
+**Map improvements:**
+- [ ] **5.5** Custom marker icons (pin with device color, not just circle dots)
+- [x] **5.6** Device name labels on map markers (always visible, not just on click)
+- [x] **5.7** Zoom-to-device button in config panel (click device name → map flies to it)
+- [ ] **5.8** Cluster markers when multiple devices are near each other at low zoom
+
+**Mobile UX:**
+- [x] **5.9** Larger touch targets for buttons and checkboxes
+- [ ] **5.10** Pull-to-refresh on map view to trigger manual poll
+- [ ] **5.11** Swipe between Map and Settings pages
+- [ ] **5.12** Test and fix landscape orientation layout
+
+### Phase 6: Backend Polish & Quality of Life
+- [ ] **6.1** Add proper error handling and retry logic for FindMy.py calls
+- [ ] **6.2** Handle Apple session expiry gracefully (re-auth notification in UI)
+- [ ] **6.3** Add data retention settings (auto-delete locations older than X days)
 - [ ] **6.4** Add export functionality (CSV/GPX export of location history)
 
 ---

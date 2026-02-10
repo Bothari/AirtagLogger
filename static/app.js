@@ -3,6 +3,7 @@ let devices = [];
 let selectedDevices = new Set();
 let activeTimeRange = 24; // hours, 0 = all
 let mapLayers = { markers: [], trails: [] };
+let latestPositions = {}; // deviceId -> {lat, lng}
 let map;
 
 // ── Init ─────────────────────────────────────────────────
@@ -208,13 +209,14 @@ async function submitDevice() {
         const res = await fetch("/api/devices", { method: "POST", body: form });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
-            alert(err.detail || "Failed to add device");
+            toast(err.detail || "Failed to add device", "error");
             return;
         }
         closeAddModal();
+        toast(`${name} added`, "success");
         await loadDevices();
     } catch (e) {
-        alert("Network error: " + e.message);
+        toast("Network error: " + e.message, "error");
     } finally {
         submitBtn.disabled = false;
         submitBtn.textContent = "Add";
@@ -279,7 +281,22 @@ function renderFilterList() {
         info.innerHTML = `<div class="device-filter-name">${esc(d.name)}</div>
             <div class="device-filter-lastseen"></div>`;
 
-        item.append(checkbox, dot, info);
+        const locateBtn = document.createElement("button");
+        locateBtn.className = "device-filter-locate";
+        locateBtn.title = `Zoom to ${d.name}`;
+        locateBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v4M12 18v4M2 12h4M18 12h4"></path></svg>';
+        locateBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const pos = latestPositions[d.id];
+            if (pos) {
+                map.flyTo([pos.lat, pos.lng], 16, { duration: 0.8 });
+            } else {
+                toast("No location data yet", "info");
+            }
+        });
+
+        item.append(checkbox, dot, info, locateBtn);
         container.appendChild(item);
     });
 }
@@ -329,9 +346,10 @@ function showDeleteConfirm(card, device) {
             const res = await fetch(`/api/devices/${device.id}`, { method: "DELETE" });
             if (!res.ok) throw new Error("Delete failed");
             selectedDevices.delete(device.id);
+            toast(`${device.name} deleted`, "success");
             await loadDevices();
         } catch (e) {
-            alert("Failed to delete: " + e.message);
+            toast("Failed to delete: " + e.message, "error");
         }
     });
     bar.querySelector(".btn-confirm-no").addEventListener("click", () => bar.remove());
@@ -353,6 +371,12 @@ async function refreshMap() {
 
     const visible = devices.filter(d => selectedDevices.has(d.id));
     if (visible.length === 0) return;
+
+    // Show loading indicator
+    const loadingEl = document.createElement("div");
+    loadingEl.className = "map-loading";
+    loadingEl.innerHTML = '<div class="spinner"></div> Loading...';
+    document.getElementById("page-map").appendChild(loadingEl);
 
     const allPoints = [];
 
@@ -395,11 +419,26 @@ async function refreshMap() {
         );
         mapLayers.markers.push(marker);
 
+        // Device name label
+        const label = L.tooltip({
+            permanent: true,
+            direction: "top",
+            offset: [0, -12],
+            className: "device-label",
+        }).setContent(device.name).setLatLng([latest.latitude, latest.longitude]);
+        label.addTo(map);
+        mapLayers.markers.push(label);
+
+        // Store latest position for zoom-to-device
+        latestPositions[device.id] = { lat: latest.latitude, lng: latest.longitude };
+
         // Update last-seen in filter panel
         updateLastSeen(device.id, latest.timestamp);
 
         allPoints.push(...latlngs);
     }));
+
+    loadingEl.remove();
 
     if (allPoints.length > 0) {
         map.fitBounds(L.latLngBounds(allPoints), { padding: [50, 50], maxZoom: 16 });
@@ -414,6 +453,16 @@ function updateLastSeen(deviceId, timestamp) {
         const el = items[idx].querySelector(".device-filter-lastseen");
         if (el) el.textContent = timeAgo(timestamp);
     }
+}
+
+// ── Toast Notifications ──────────────────────────────────
+function toast(message, type = "info") {
+    const container = document.getElementById("toast-container");
+    const el = document.createElement("div");
+    el.className = `toast toast-${type}`;
+    el.textContent = message;
+    container.appendChild(el);
+    setTimeout(() => el.remove(), 3200);
 }
 
 // ── Helpers ──────────────────────────────────────────────
