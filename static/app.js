@@ -595,7 +595,7 @@ async function refreshMap() {
 
     loadingEl.remove();
     updateScrubber();
-    renderMapAtTime(null); // Live mode
+    renderMapAtTime(null, true); // Live mode, fit bounds
 }
 
 // ── Timeline Scrubber ────────────────────────────────────
@@ -650,7 +650,7 @@ function updateScrubber() {
     bar.style.display = "flex";
 }
 
-function renderMapAtTime(timeMs) {
+function renderMapAtTime(timeMs, fitBounds = false) {
     clearMapLayers();
 
     const visible = devices.filter(d => selectedDevices.has(d.id));
@@ -754,7 +754,7 @@ function renderMapAtTime(timeMs) {
 
     map.addLayer(clusterGroup);
 
-    if (isLive && allPoints.length > 0) {
+    if (fitBounds && allPoints.length > 0) {
         map.fitBounds(L.latLngBounds(allPoints), { padding: [50, 50], maxZoom: 16 });
     }
 }
