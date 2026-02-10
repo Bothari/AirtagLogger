@@ -737,16 +737,13 @@ function renderMapAtTime(timeMs) {
                  ${markerLoc.latitude.toFixed(5)}, ${markerLoc.longitude.toFixed(5)}<br>
                  <small>${formatTimestamp(markerLoc.timestamp)}</small>`
             );
-            clusterGroup.addLayer(marker);
-
-            const label = L.tooltip({
+            marker.bindTooltip(device.name + (isDisabled ? " (off)" : ""), {
                 permanent: true,
                 direction: "top",
                 offset: [0, -12],
                 className: "device-label" + (isDisabled ? " device-label-disabled" : ""),
-            }).setContent(device.name + (isDisabled ? " (off)" : "")).setLatLng([markerLoc.latitude, markerLoc.longitude]);
-            label.addTo(map);
-            mapLayers.markers.push(label);
+            });
+            clusterGroup.addLayer(marker);
 
             latestPositions[device.id] = { lat: markerLoc.latitude, lng: markerLoc.longitude };
             if (isLive) updateLastSeen(device.id, markerLoc.timestamp);
