@@ -3,6 +3,7 @@ let devices = [];
 let selectedDevices = new Set();
 let activeTimeRange = 24; // hours, 0 = all
 let mapLayers = { markers: [], trails: [] };
+let clusterGroup = null;
 let latestPositions = {}; // deviceId -> {lat, lng}
 let map;
 
@@ -540,6 +541,10 @@ function showDeleteConfirm(container, device) {
 
 // ── Map Rendering ────────────────────────────────────────
 function clearMapLayers() {
+    if (clusterGroup) {
+        map.removeLayer(clusterGroup);
+        clusterGroup = null;
+    }
     mapLayers.markers.forEach(m => map.removeLayer(m));
     mapLayers.trails.forEach(t => map.removeLayer(t));
     mapLayers.markers = [];
@@ -561,6 +566,20 @@ async function refreshMap() {
     loadingEl.innerHTML = '<div class="spinner"></div> Loading...';
     document.getElementById("page-map").appendChild(loadingEl);
 
+    clusterGroup = L.markerClusterGroup({
+        maxClusterRadius: 40,
+        spiderfyOnMaxZoom: true,
+        showCoverageOnHover: false,
+        iconCreateFunction: function(cluster) {
+            const count = cluster.getChildCount();
+            return L.divIcon({
+                html: `<span>${count}</span>`,
+                className: "marker-cluster",
+                iconSize: [36, 36],
+            });
+        },
+    });
+
     const allPoints = [];
 
     await Promise.all(visible.map(async (device) => {
@@ -578,7 +597,7 @@ async function refreshMap() {
         }
         if (!locations.length) return;
 
-        // Trail polyline
+        // Trail polyline (not clustered)
         const isDisabled = !enabledIds.has(device.id);
         const latlngs = locations.map(l => [l.latitude, l.longitude]);
         const trail = L.polyline(latlngs, {
@@ -589,22 +608,25 @@ async function refreshMap() {
         }).addTo(map);
         mapLayers.trails.push(trail);
 
-        // Latest position marker
+        // Latest position marker (custom divIcon for clustering support)
         const latest = locations[0];
-        const marker = L.circleMarker([latest.latitude, latest.longitude], {
-            radius: 8,
-            color: isDisabled ? "#555" : device.color,
-            fillColor: isDisabled ? "#555" : device.color,
-            fillOpacity: isDisabled ? 0.4 : 0.9,
-            weight: 2,
-        }).addTo(map).bindPopup(
+        const markerColor = isDisabled ? "#555" : device.color;
+        const marker = L.marker([latest.latitude, latest.longitude], {
+            icon: L.divIcon({
+                className: "device-marker-icon",
+                html: `<div style="background:${markerColor};opacity:${isDisabled ? 0.4 : 0.9}"></div>`,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8],
+                popupAnchor: [0, -10],
+            }),
+        }).bindPopup(
             `<b>${esc(device.name)}</b>${isDisabled ? " <i>(Disabled)</i>" : ""}<br>
              ${latest.latitude.toFixed(5)}, ${latest.longitude.toFixed(5)}<br>
              <small>${formatTimestamp(latest.timestamp)}</small>`
         );
-        mapLayers.markers.push(marker);
+        clusterGroup.addLayer(marker);
 
-        // Device name label
+        // Device name label (not clustered, added directly to map)
         const label = L.tooltip({
             permanent: true,
             direction: "top",
@@ -623,6 +645,7 @@ async function refreshMap() {
         allPoints.push(...latlngs);
     }));
 
+    map.addLayer(clusterGroup);
     loadingEl.remove();
 
     if (allPoints.length > 0) {

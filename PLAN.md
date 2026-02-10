@@ -272,7 +272,7 @@ The `/data` directory contains:
 **Map improvements:**
 - [x] **5.5** Device name labels on map markers (always visible, not just on click)
 - [x] **5.6** Zoom-to-device button in config panel (click device name → map flies to it)
-- [ ] **5.7** Cluster markers when multiple devices are near each other at low zoom
+- [x] **5.7** Cluster markers when multiple devices are near each other at low zoom
 
 **Settings page:**
 - [x] **5.9** Cap settings page width (~600px) and center on desktop

@@ -902,6 +902,42 @@ input { font-family: inherit; color: inherit; }
     color: var(--text-muted);
 }
 
+/* ── Device Marker Icons ──────────────────────────────── */
+.device-marker-icon {
+    background: none !important;
+    border: none !important;
+}
+.device-marker-icon div {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.8);
+    box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+}
+
+/* ── Marker Clusters ─────────────────────────────────── */
+.marker-cluster {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    background: var(--bg-card) !important;
+    border: 2px solid var(--accent) !important;
+    border-radius: 50% !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.5) !important;
+    color: var(--accent) !important;
+    font-size: 0.78rem !important;
+    font-weight: 700 !important;
+    font-family: var(--font) !important;
+}
+.marker-cluster span {
+    line-height: 1;
+}
+/* Override default markercluster styles */
+.leaflet-cluster-anim .leaflet-marker-icon,
+.leaflet-cluster-anim .leaflet-marker-shadow {
+    transition: transform 0.2s ease-out, opacity 0.2s ease-in;
+}
+
 /* ── Device Labels on Map ─────────────────────────────── */
 .device-label {
     background: none !important;
