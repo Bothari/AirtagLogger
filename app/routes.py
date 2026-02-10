@@ -53,7 +53,7 @@ async def auth_2fa(req: TwoFactorRequest):
 
 @router.get("/devices")
 async def list_devices(db: aiosqlite.Connection = Depends(get_db)):
-    cursor = await db.execute("SELECT * FROM devices ORDER BY created_at")
+    cursor = await db.execute("SELECT * FROM devices ORDER BY enabled DESC, name COLLATE NOCASE")
     rows = await cursor.fetchall()
     return [dict(row) for row in rows]
 
@@ -76,9 +76,12 @@ async def add_device(
     content = await key_file.read()
     # Validate it's valid JSON
     try:
-        json.loads(content)
+        key_data = json.loads(content)
     except json.JSONDecodeError:
         raise HTTPException(status_code=400, detail="Key file must be valid JSON")
+
+    # Use name from key file as original_name if available
+    original_name = key_data.get("name") or name
 
     filepath = os.path.join(devices_dir, filename)
     with open(filepath, "wb") as f:
@@ -86,10 +89,10 @@ async def add_device(
 
     await db.execute(
         "INSERT INTO devices (id, name, original_name, key_file, color) VALUES (?, ?, ?, ?, ?)",
-        (device_id, name, name, filename, color),
+        (device_id, name, original_name, filename, color),
     )
     await db.commit()
-    return {"id": device_id, "name": name, "original_name": name, "key_file": filename, "color": color, "enabled": 1}
+    return {"id": device_id, "name": name, "original_name": original_name, "key_file": filename, "color": color, "enabled": 1}
 
 
 @router.delete("/devices/{device_id}")

@@ -163,7 +163,20 @@ function handleFile(file) {
     const nameEl = document.getElementById("file-name");
     nameEl.textContent = file.name;
     nameEl.style.display = "block";
-    validateForm();
+
+    // Try to extract device name from the JSON
+    file.text().then(text => {
+        try {
+            const data = JSON.parse(text);
+            if (data.name) {
+                const nameInput = document.getElementById("device-name");
+                if (!nameInput.value.trim()) {
+                    nameInput.value = data.name;
+                }
+            }
+        } catch {}
+        validateForm();
+    });
 }
 
 function validateForm() {
