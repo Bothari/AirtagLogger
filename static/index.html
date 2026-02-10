@@ -94,38 +94,40 @@
 
         <!-- ── Settings Page ─────────────────────────── -->
         <div id="page-settings" class="page">
-            <div class="settings-header">
-                <h1>Settings</h1>
-            </div>
-            <div class="tab-bar">
-                <button class="tab-btn active" data-tab="tab-devices">Devices</button>
-                <button class="tab-btn" data-tab="tab-general">General</button>
-            </div>
-
-            <!-- Devices Tab -->
-            <div class="tab-content active" id="tab-devices">
-                <div id="settings-device-list">
-                    <!-- populated by JS -->
+            <div class="settings-inner">
+                <div class="settings-header">
+                    <h1>Settings</h1>
                 </div>
-                <div class="empty-state" id="settings-empty" style="display:none;">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
-                        <path d="M16 7V5a4 4 0 00-8 0v2"></path>
-                    </svg>
-                    <p>No devices added.<br>Click + to add your first AirTag.</p>
+                <div class="tab-bar">
+                    <button class="tab-btn active" data-tab="tab-devices">Devices</button>
+                    <button class="tab-btn" data-tab="tab-general">General</button>
                 </div>
-                <button class="btn-add" id="btn-add-device">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                    Add Device
-                </button>
-            </div>
 
-            <!-- General Tab -->
-            <div class="tab-content" id="tab-general">
-                <div class="setting-row">
-                    <span class="setting-label">Poll interval</span>
-                    <input type="number" id="poll-interval" value="15" min="1" max="1440">
-                    <span class="setting-unit">min</span>
+                <!-- Devices Tab -->
+                <div class="tab-content active" id="tab-devices">
+                    <div id="settings-device-list">
+                        <!-- populated by JS -->
+                    </div>
+                    <div class="empty-state" id="settings-empty" style="display:none;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                            <path d="M16 7V5a4 4 0 00-8 0v2"></path>
+                        </svg>
+                        <p>No devices added.<br>Click + to add your first AirTag.</p>
+                    </div>
+                    <button class="btn-add" id="btn-add-device">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        Add Device
+                    </button>
+                </div>
+
+                <!-- General Tab -->
+                <div class="tab-content" id="tab-general">
+                    <div class="setting-row">
+                        <span class="setting-label">Poll interval</span>
+                        <input type="number" id="poll-interval" value="15" min="1" max="1440">
+                        <span class="setting-unit">min</span>
+                    </div>
                 </div>
             </div>
         </div>

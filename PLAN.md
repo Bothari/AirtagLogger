@@ -267,27 +267,36 @@ The `/data` directory contains:
 
 **Visual polish:**
 - [x] **5.1** Add loading spinners/skeleton states while fetching data (devices, locations, auth)
-- [ ] **5.2** Smooth page transitions and animations (setup → map, tab switches)
-- [ ] **5.3** Review spacing, typography, and alignment across all pages
 - [x] **5.4** Add toast/notification system for feedback (poll complete, device added, errors)
 
 **Map improvements:**
-- [ ] **5.5** Custom marker icons (pin with device color, not just circle dots)
-- [x] **5.6** Device name labels on map markers (always visible, not just on click)
-- [x] **5.7** Zoom-to-device button in config panel (click device name → map flies to it)
-- [ ] **5.8** Cluster markers when multiple devices are near each other at low zoom
+- [x] **5.5** Device name labels on map markers (always visible, not just on click)
+- [x] **5.6** Zoom-to-device button in config panel (click device name → map flies to it)
+- [ ] **5.7** Cluster markers when multiple devices are near each other at low zoom
+
+**Settings page:**
+- [x] **5.9** Cap settings page width (~600px) and center on desktop
+- [x] **5.10** Expandable device cards — click to expand, revealing per-device settings
+- [x] **5.11** Rename device (store `original_name` in DB so user can revert)
+- [x] **5.12** Per-device color picker in expanded card
+- [x] **5.13** Disable/enable toggle — disabled devices stop polling but remain visible on map with greyed-out marker and "Disabled" label, stale last-seen time shown
+- [x] **5.14** Backend: add `original_name` and `enabled` columns to `devices` table, poller skips disabled devices
 
 **Mobile UX:**
-- [x] **5.9** Larger touch targets for buttons and checkboxes
-- [ ] **5.10** Pull-to-refresh on map view to trigger manual poll
-- [ ] **5.11** Swipe between Map and Settings pages
-- [ ] **5.12** Test and fix landscape orientation layout
+- [x] **5.15** Larger touch targets for buttons and checkboxes
+- [ ] **5.16** Test and fix landscape orientation layout
 
-### Phase 6: Backend Polish & Quality of Life
-- [ ] **6.1** Add proper error handling and retry logic for FindMy.py calls
-- [ ] **6.2** Handle Apple session expiry gracefully (re-auth notification in UI)
-- [ ] **6.3** Add data retention settings (auto-delete locations older than X days)
-- [ ] **6.4** Add export functionality (CSV/GPX export of location history)
+### Phase 6: Export & Data Management
+- [ ] **6.1** Add "Export" tab to Settings page (third tab: Devices / General / Export)
+- [ ] **6.2** Export UI: device multi-select, time range picker, format selector
+- [ ] **6.3** Backend: `GET /api/export?devices=...&from=...&to=...&format=gpx|csv` endpoint
+- [ ] **6.4** GPX export (compatible with Google Earth, Strava, AllTrails, OsmAnd, Garmin)
+- [ ] **6.5** CSV export (lat, lon, timestamp, device name — for spreadsheets/custom processing)
+
+### Phase 7: Backend Polish & Quality of Life
+- [ ] **7.1** Add proper error handling and retry logic for FindMy.py calls
+- [ ] **7.2** Handle Apple session expiry gracefully (re-auth notification in UI)
+- [ ] **7.3** Add data retention settings (auto-delete locations older than X days)
 
 ---
 

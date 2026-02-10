@@ -22,6 +22,11 @@ class TwoFactorRequest(BaseModel):
     method_id: int
     code: str
 
+class DeviceUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    enabled: Optional[bool] = None
+
 
 @router.get("/auth/status")
 async def auth_status():
@@ -80,11 +85,11 @@ async def add_device(
         f.write(content)
 
     await db.execute(
-        "INSERT INTO devices (id, name, key_file, color) VALUES (?, ?, ?, ?)",
-        (device_id, name, filename, color),
+        "INSERT INTO devices (id, name, original_name, key_file, color) VALUES (?, ?, ?, ?, ?)",
+        (device_id, name, name, filename, color),
     )
     await db.commit()
-    return {"id": device_id, "name": name, "key_file": filename, "color": color}
+    return {"id": device_id, "name": name, "original_name": name, "key_file": filename, "color": color, "enabled": 1}
 
 
 @router.delete("/devices/{device_id}")
@@ -94,6 +99,31 @@ async def delete_device(device_id: str, db: aiosqlite.Connection = Depends(get_d
     if cursor.rowcount == 0:
         raise HTTPException(status_code=404, detail="Device not found")
     return {"ok": True}
+
+
+@router.patch("/devices/{device_id}")
+async def update_device(device_id: str, update: DeviceUpdate, db: aiosqlite.Connection = Depends(get_db)):
+    sets = []
+    params = []
+    if update.name is not None:
+        sets.append("name = ?")
+        params.append(update.name)
+    if update.color is not None:
+        sets.append("color = ?")
+        params.append(update.color)
+    if update.enabled is not None:
+        sets.append("enabled = ?")
+        params.append(1 if update.enabled else 0)
+    if not sets:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    params.append(device_id)
+    cursor = await db.execute(f"UPDATE devices SET {', '.join(sets)} WHERE id = ?", params)
+    await db.commit()
+    if cursor.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Device not found")
+    row = await db.execute("SELECT * FROM devices WHERE id = ?", (device_id,))
+    device = await row.fetchone()
+    return dict(device)
 
 
 @router.get("/locations/latest")

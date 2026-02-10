@@ -302,37 +302,143 @@ function renderFilterList() {
 }
 
 // ── Settings Device List ─────────────────────────────────
+const SWATCH_COLORS = ["#4f8cff","#ff5c5c","#34d399","#fbbf24","#a78bfa","#f472b6","#fb923c","#22d3ee"];
+
 function renderSettingsDevices() {
     const container = document.getElementById("settings-device-list");
     container.innerHTML = "";
 
     devices.forEach(d => {
         const card = document.createElement("div");
-        card.className = "device-card";
+        card.className = "device-card" + (d.enabled === 0 ? " disabled" : "");
         card.dataset.id = d.id;
 
         const created = d.created_at ? formatDate(d.created_at) : "";
+        const statusText = d.enabled === 0 ? " (Disabled)" : "";
 
-        card.innerHTML = `
+        // Header (always visible, clickable to expand)
+        const header = document.createElement("div");
+        header.className = "device-card-header";
+        header.innerHTML = `
             <span class="device-card-swatch" style="background:${esc(d.color)}"></span>
             <div class="device-card-info">
-                <div class="device-card-name">${esc(d.name)}</div>
+                <div class="device-card-name">${esc(d.name)}${statusText}</div>
                 <div class="device-card-meta">${created ? "Added " + created : ""}</div>
             </div>
-            <button class="btn-delete" title="Delete device">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
-            </button>`;
+            <svg class="device-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 
-        const delBtn = card.querySelector(".btn-delete");
-        delBtn.addEventListener("click", () => showDeleteConfirm(card, d));
+        header.addEventListener("click", () => {
+            card.classList.toggle("expanded");
+        });
 
+        // Body (expanded settings)
+        const body = document.createElement("div");
+        body.className = "device-card-body";
+
+        // Rename
+        const originalName = d.original_name || d.name;
+        const revertHtml = d.name !== originalName
+            ? `<div class="device-setting-original">Original: ${esc(originalName)} <button class="btn-revert-name">Reset</button></div>`
+            : `<div class="device-setting-original">Original name</div>`;
+
+        // Color swatches
+        const swatchesHtml = SWATCH_COLORS.map(c =>
+            `<button class="color-swatch${c === d.color ? " selected" : ""}" data-color="${c}" style="background:${c}"></button>`
+        ).join("");
+
+        body.innerHTML = `
+            <div class="device-setting">
+                <span class="device-setting-label">Name</span>
+                <div class="device-setting-value">
+                    <input type="text" class="rename-input" value="${esc(d.name)}">
+                    ${revertHtml}
+                </div>
+            </div>
+            <div class="device-setting">
+                <span class="device-setting-label">Color</span>
+                <div class="device-setting-value">
+                    <div class="device-color-swatches">${swatchesHtml}</div>
+                </div>
+            </div>
+            <div class="device-setting">
+                <span class="device-setting-label">Enabled</span>
+                <div class="device-setting-value">
+                    <label class="toggle">
+                        <input type="checkbox" class="toggle-enabled" ${d.enabled !== 0 ? "checked" : ""}>
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="device-card-actions">
+                <button class="btn-delete">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
+                    Delete device
+                </button>
+            </div>`;
+
+        // Rename handler (blur = save)
+        const renameInput = body.querySelector(".rename-input");
+        renameInput.addEventListener("blur", () => updateDeviceField(d.id, "name", renameInput.value.trim()));
+        renameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") renameInput.blur(); });
+
+        // Revert name handler
+        const revertBtn = body.querySelector(".btn-revert-name");
+        if (revertBtn) {
+            revertBtn.addEventListener("click", async () => {
+                await updateDeviceField(d.id, "name", originalName);
+                renameInput.value = originalName;
+            });
+        }
+
+        // Color swatch handler
+        body.querySelector(".device-color-swatches").addEventListener("click", async (e) => {
+            const swatch = e.target.closest(".color-swatch");
+            if (!swatch) return;
+            body.querySelectorAll(".color-swatch").forEach(s => s.classList.remove("selected"));
+            swatch.classList.add("selected");
+            await updateDeviceField(d.id, "color", swatch.dataset.color);
+            header.querySelector(".device-card-swatch").style.background = swatch.dataset.color;
+        });
+
+        // Enable/disable toggle
+        body.querySelector(".toggle-enabled").addEventListener("change", async (e) => {
+            await updateDeviceField(d.id, "enabled", e.target.checked);
+            card.classList.toggle("disabled", !e.target.checked);
+            const nameEl = header.querySelector(".device-card-name");
+            nameEl.textContent = renameInput.value.trim() + (e.target.checked ? "" : " (Disabled)");
+        });
+
+        // Delete handler
+        body.querySelector(".btn-delete").addEventListener("click", (e) => {
+            e.stopPropagation();
+            showDeleteConfirm(body, d);
+        });
+
+        card.append(header, body);
         container.appendChild(card);
     });
 }
 
-function showDeleteConfirm(card, device) {
-    // Remove any existing confirm bar
-    const existing = card.querySelector(".confirm-bar");
+async function updateDeviceField(deviceId, field, value) {
+    try {
+        const res = await fetch(`/api/devices/${deviceId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ [field]: value }),
+        });
+        if (!res.ok) throw new Error("Update failed");
+        // Update local state
+        const device = devices.find(d => d.id === deviceId);
+        if (device) device[field] = field === "enabled" ? (value ? 1 : 0) : value;
+        renderFilterList();
+        refreshMap();
+    } catch (e) {
+        toast("Failed to update: " + e.message, "error");
+    }
+}
+
+function showDeleteConfirm(container, device) {
+    const existing = container.querySelector(".confirm-bar");
     if (existing) { existing.remove(); return; }
 
     const bar = document.createElement("div");
@@ -354,8 +460,7 @@ function showDeleteConfirm(card, device) {
     });
     bar.querySelector(".btn-confirm-no").addEventListener("click", () => bar.remove());
 
-    // Insert after the card content
-    card.appendChild(bar);
+    container.appendChild(bar);
 }
 
 // ── Map Rendering ────────────────────────────────────────
@@ -371,6 +476,9 @@ async function refreshMap() {
 
     const visible = devices.filter(d => selectedDevices.has(d.id));
     if (visible.length === 0) return;
+
+    // Split into enabled and disabled for different styling
+    const enabledIds = new Set(devices.filter(d => d.enabled !== 0).map(d => d.id));
 
     // Show loading indicator
     const loadingEl = document.createElement("div");
@@ -396,11 +504,13 @@ async function refreshMap() {
         if (!locations.length) return;
 
         // Trail polyline
+        const isDisabled = !enabledIds.has(device.id);
         const latlngs = locations.map(l => [l.latitude, l.longitude]);
         const trail = L.polyline(latlngs, {
-            color: device.color,
+            color: isDisabled ? "#555" : device.color,
             weight: 2.5,
-            opacity: 0.5,
+            opacity: isDisabled ? 0.25 : 0.5,
+            dashArray: isDisabled ? "6 4" : null,
         }).addTo(map);
         mapLayers.trails.push(trail);
 
@@ -408,12 +518,12 @@ async function refreshMap() {
         const latest = locations[0];
         const marker = L.circleMarker([latest.latitude, latest.longitude], {
             radius: 8,
-            color: device.color,
-            fillColor: device.color,
-            fillOpacity: 0.9,
+            color: isDisabled ? "#555" : device.color,
+            fillColor: isDisabled ? "#555" : device.color,
+            fillOpacity: isDisabled ? 0.4 : 0.9,
             weight: 2,
         }).addTo(map).bindPopup(
-            `<b>${esc(device.name)}</b><br>
+            `<b>${esc(device.name)}</b>${isDisabled ? " <i>(Disabled)</i>" : ""}<br>
              ${latest.latitude.toFixed(5)}, ${latest.longitude.toFixed(5)}<br>
              <small>${formatTimestamp(latest.timestamp)}</small>`
         );
@@ -424,8 +534,8 @@ async function refreshMap() {
             permanent: true,
             direction: "top",
             offset: [0, -12],
-            className: "device-label",
-        }).setContent(device.name).setLatLng([latest.latitude, latest.longitude]);
+            className: "device-label" + (isDisabled ? " device-label-disabled" : ""),
+        }).setContent(device.name + (isDisabled ? " (off)" : "")).setLatLng([latest.latitude, latest.longitude]);
         label.addTo(map);
         mapLayers.markers.push(label);
 

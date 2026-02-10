@@ -253,6 +253,16 @@ input { font-family: inherit; color: inherit; }
 #page-settings {
     flex-direction: column;
     overflow: hidden;
+    align-items: center;
+}
+
+.settings-inner {
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
 }
 
 .settings-header {
@@ -298,17 +308,25 @@ input { font-family: inherit; color: inherit; }
 
 /* Device cards in settings */
 .device-card {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     margin-bottom: 10px;
     transition: border-color 0.12s;
+    overflow: hidden;
 }
 .device-card:hover { border-color: var(--text-dim); }
+.device-card.disabled { opacity: 0.55; }
+
+.device-card-header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
 
 .device-card-swatch {
     width: 14px;
@@ -329,23 +347,130 @@ input { font-family: inherit; color: inherit; }
     color: var(--text-dim);
     margin-top: 2px;
 }
+.device-card-chevron {
+    width: 20px;
+    height: 20px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    transition: transform 0.2s;
+}
+.device-card.expanded .device-card-chevron { transform: rotate(180deg); }
 
-.btn-delete {
-    width: 34px;
-    height: 34px;
+/* Expanded settings area */
+.device-card-body {
+    display: none;
+    padding: 0 16px 16px;
+    border-top: 1px solid var(--border);
+}
+.device-card.expanded .device-card-body { display: block; }
+
+.device-setting {
     display: flex;
     align-items: center;
-    justify-content: center;
+    gap: 12px;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+}
+.device-setting:last-child { border-bottom: none; }
+.device-setting-label {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    min-width: 70px;
+    flex-shrink: 0;
+}
+.device-setting-value { flex: 1; min-width: 0; }
+.device-setting-value input[type="text"] {
+    width: 100%;
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.device-setting-value input[type="text"]:focus { border-color: var(--accent); }
+
+.device-setting-original {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 4px;
+}
+.device-setting-original button {
+    color: var(--accent);
+    font-size: 0.72rem;
+    text-decoration: underline;
+    margin-left: 4px;
+}
+
+/* Toggle switch */
+.toggle {
+    position: relative;
+    width: 40px;
+    height: 22px;
+    flex-shrink: 0;
+}
+.toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+.toggle-track {
+    position: absolute;
+    inset: 0;
+    background: var(--border);
+    border-radius: 11px;
+    transition: background 0.2s;
+    cursor: pointer;
+}
+.toggle-track::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    left: 3px;
+    top: 3px;
+    background: var(--text-muted);
+    border-radius: 50%;
+    transition: transform 0.2s, background 0.2s;
+}
+.toggle input:checked + .toggle-track {
+    background: var(--accent-dim);
+}
+.toggle input:checked + .toggle-track::after {
+    transform: translateX(18px);
+    background: var(--accent);
+}
+
+/* Color picker in device settings */
+.device-color-swatches {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.device-color-swatches .color-swatch {
+    width: 26px;
+    height: 26px;
+    border-width: 2px;
+}
+
+/* Delete in card body */
+.device-card-actions {
+    padding-top: 8px;
+}
+
+.btn-delete {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 14px;
+    font-size: 0.8rem;
+    font-weight: 600;
     border-radius: var(--radius-sm);
     color: var(--text-dim);
     transition: background 0.12s, color 0.12s;
-    flex-shrink: 0;
 }
 .btn-delete:hover {
     background: var(--danger-dim);
     color: var(--danger);
 }
-.btn-delete svg { width: 16px; height: 16px; }
+.btn-delete svg { width: 14px; height: 14px; }
 
 /* Add device button */
 .btn-add {
@@ -785,6 +910,10 @@ input { font-family: inherit; color: inherit; }
     text-shadow: 0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.6);
     white-space: nowrap;
 }
+.device-label-disabled {
+    color: var(--text-dim) !important;
+    font-style: italic;
+}
 
 /* ── Zoom-to-device button ────────────────────────────── */
 .device-filter-locate {
@@ -848,9 +977,12 @@ input { font-family: inherit; color: inherit; }
     .time-btn { padding: 10px 16px; font-size: 0.82rem; min-height: 44px; }
     .tab-btn { padding: 14px 20px; }
     .btn-add { padding: 14px 24px; }
-    .btn-delete { width: 44px; height: 44px; }
     .nav-item { min-height: 56px; }
     .color-swatch { width: 40px; height: 40px; }
+    .device-card-header { padding: 16px; min-height: 56px; }
+    .toggle { width: 48px; height: 26px; }
+    .toggle-track::after { width: 20px; height: 20px; }
+    .toggle input:checked + .toggle-track::after { transform: translateX(22px); }
 }
 
 @media (min-width: 769px) {

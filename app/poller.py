@@ -161,7 +161,7 @@ async def poll_once() -> dict:
 
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        cursor = await db.execute("SELECT id, key_file FROM devices")
+        cursor = await db.execute("SELECT id, key_file FROM devices WHERE enabled = 1")
         devices = await cursor.fetchall()
 
     if not devices:
