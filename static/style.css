@@ -33,6 +33,7 @@ body {
 }
 button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
 input { font-family: inherit; color: inherit; }
+*, *::before, *::after { touch-action: manipulation; }
 
 /* ── App Shell ────────────────────────────────────────── */
 #app {
@@ -1217,6 +1218,7 @@ input { font-family: inherit; color: inherit; }
     .toggle-track::after { width: 20px; height: 20px; }
     .toggle input:checked + .toggle-track::after { transform: translateX(22px); }
     #scrubber-bar { left: 0; }
+    .leaflet-top { top: 54px !important; }
 }
 
 @media (min-width: 769px) {

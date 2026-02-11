@@ -130,14 +130,16 @@ Monterey is the sweet spot: best VM support and simplest key extraction.
 ```sql
 -- Devices (AirTags) registered in the system
 CREATE TABLE devices (
-    id          TEXT PRIMARY KEY,  -- UUID
-    name        TEXT NOT NULL,     -- User-friendly name (e.g. "Car Keys")
-    key_file    TEXT NOT NULL,     -- Filename of the device JSON in /data/devices/
-    color       TEXT DEFAULT '#3388ff',  -- Map marker color
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id              TEXT PRIMARY KEY,  -- UUID
+    name            TEXT NOT NULL,     -- User-friendly name (e.g. "Car Keys")
+    original_name   TEXT,             -- Name from key file (for revert)
+    key_file        TEXT NOT NULL,     -- Filename of the device JSON in /data/devices/
+    color           TEXT DEFAULT '#3388ff',  -- Map marker color
+    enabled         INTEGER DEFAULT 1, -- 0 = disabled (skip polling, grey on map)
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Location history log
+-- Location history log (stores every poll, even duplicates)
 CREATE TABLE locations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     device_id   TEXT NOT NULL REFERENCES devices(id),
@@ -145,11 +147,16 @@ CREATE TABLE locations (
     longitude   REAL NOT NULL,
     timestamp   TIMESTAMP NOT NULL,  -- When Apple recorded the location
     fetched_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,  -- When we fetched it
-    raw_report  TEXT,  -- Full JSON of the LocationReport (optional, for debugging)
-    UNIQUE(device_id, timestamp)  -- Prevent duplicate entries
+    raw_report  TEXT  -- Full JSON of the LocationReport (optional, for debugging)
 );
 
 CREATE INDEX idx_locations_device_time ON locations(device_id, timestamp DESC);
+
+-- Key-value settings (poll_interval, etc.)
+CREATE TABLE settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 ```
 
 ### API Endpoints
@@ -272,7 +279,8 @@ The `/data` directory contains:
 **Map improvements:**
 - [x] **5.5** Device name labels on map markers (always visible, not just on click)
 - [x] **5.6** Zoom-to-device button in config panel (click device name → map flies to it)
-- [x] **5.7** Cluster markers when multiple devices are near each other at low zoom
+- [x] **5.7** Cluster markers when multiple devices are near each other at low zoom (labels hide when clustered)
+- [x] **5.8** Timeline scrubber — slider at bottom of map to scrub through location history. Trail before = colored, trail after = grey/dashed. Markers move to position at scrubbed time. Defaults to "Live".
 
 **Settings page:**
 - [x] **5.9** Cap settings page width (~600px) and center on desktop
@@ -282,16 +290,23 @@ The `/data` directory contains:
 - [x] **5.13** Disable/enable toggle — disabled devices stop polling but remain visible on map with greyed-out marker and "Disabled" label, stale last-seen time shown
 - [x] **5.14** Backend: add `original_name` and `enabled` columns to `devices` table, poller skips disabled devices
 
+**Polling:**
+- [x] **5.17** Poll Now button on General settings tab
+- [x] **5.18** Saved poll interval (persisted in settings DB table, loaded on startup)
+- [x] **5.19** Last-polled time per device on settings cards (with hover for exact time)
+- [x] **5.20** Poll loop sleeps in short increments so interval changes take effect immediately
+- [x] **5.21** Update `fetched_at` on every poll attempt (even failures) so "last polled" stays current
+
 **Mobile UX:**
 - [x] **5.15** Larger touch targets for buttons and checkboxes
 - [ ] **5.16** Test and fix landscape orientation layout
 
-### Phase 6: Export & Data Management
-- [ ] **6.1** Add "Export" tab to Settings page (third tab: Devices / General / Export)
-- [ ] **6.2** Export UI: device multi-select, time range picker, format selector
-- [ ] **6.3** Backend: `GET /api/export?devices=...&from=...&to=...&format=gpx|csv` endpoint
-- [ ] **6.4** GPX export (compatible with Google Earth, Strava, AllTrails, OsmAnd, Garmin)
-- [ ] **6.5** CSV export (lat, lon, timestamp, device name — for spreadsheets/custom processing)
+### Phase 6: Export & Data Management — DONE
+- [x] **6.1** Add "Export" tab to Settings page (third tab: Devices / General / Export)
+- [x] **6.2** Export UI: device multi-select, time range presets + custom date pickers, format selector
+- [x] **6.3** Backend: `GET /api/export?devices=...&from_ts=...&to_ts=...&format=gpx|csv` endpoint
+- [x] **6.4** GPX export (compatible with Google Earth, Strava, AllTrails, OsmAnd, Garmin)
+- [x] **6.5** CSV export (device_name, device_id, lat, lon, timestamp, fetched_at)
 
 ### Phase 7: Backend Polish & Quality of Life
 - [ ] **7.1** Add proper error handling and retry logic for FindMy.py calls

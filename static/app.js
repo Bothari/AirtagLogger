@@ -548,7 +548,10 @@ function renderSettingsDevices() {
             <svg class="device-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
 
         header.addEventListener("click", () => {
-            card.classList.toggle("expanded");
+            const wasExpanded = card.classList.contains("expanded");
+            // Collapse all other cards
+            container.querySelectorAll(".device-card.expanded").forEach(c => c.classList.remove("expanded"));
+            if (!wasExpanded) card.classList.add("expanded");
         });
 
         // Body (expanded settings)
