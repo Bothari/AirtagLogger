@@ -31,6 +31,7 @@ ANISETTE_LIBS_PATH = os.path.join(DATA_DIR, "ani_libs.bin")
 # Polling state
 _poll_task: asyncio.Task | None = None
 _poll_interval: int = int(os.environ.get("POLL_INTERVAL_MINUTES", "15"))
+_retention_days: int = 30
 _account: AsyncAppleAccount | None = None
 _running = False
 
@@ -143,6 +144,16 @@ def set_poll_interval(minutes: int):
     log.info("Poll interval changed to %d minutes", minutes)
 
 
+def get_retention_days() -> int:
+    return _retention_days
+
+
+def set_retention_days(days: int):
+    global _retention_days
+    _retention_days = days
+    log.info("Data retention changed to %d days (0 = forever)", days)
+
+
 def set_account(account: AsyncAppleAccount):
     """Set the active account and ensure polling is running."""
     global _account
@@ -230,7 +241,7 @@ async def poll_once() -> dict:
                 await db.execute(
                     """INSERT INTO locations (device_id, latitude, longitude, timestamp)
                        VALUES (?, ?, ?, ?)""",
-                    (device_id, location.latitude, location.longitude, str(location.timestamp)),
+                    (device_id, location.latitude, location.longitude, location.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")),
                 )
                 await db.commit()
                 total_fetched += 1
@@ -254,9 +265,29 @@ async def poll_once() -> dict:
     except Exception as e:
         log.warning("Failed to save account state: %s", e)
 
+    # Clean up old data
+    await _cleanup_old_locations()
+
     summary = {"fetched": total_fetched, "devices": len(devices), "errors": errors}
     log.info("Poll complete: %s", summary)
     return summary
+
+
+async def _cleanup_old_locations():
+    """Delete location records older than the retention period."""
+    if _retention_days <= 0:
+        return
+    try:
+        async with aiosqlite.connect(DB_PATH) as db:
+            cursor = await db.execute(
+                "DELETE FROM locations WHERE timestamp < datetime('now', ?)",
+                (f"-{_retention_days} days",),
+            )
+            await db.commit()
+            if cursor.rowcount > 0:
+                log.info("Cleaned up %d old location records (>%d days)", cursor.rowcount, _retention_days)
+    except Exception as e:
+        log.warning("Failed to clean up old locations: %s", e)
 
 
 async def _poll_loop():

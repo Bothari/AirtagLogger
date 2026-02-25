@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import aiosqlite
 
 from app.database import init_db, DB_PATH
-from app.poller import start_polling, stop_polling, set_poll_interval
+from app.poller import start_polling, stop_polling, set_poll_interval, set_retention_days
 from app.routes import router
 
 logging.basicConfig(
@@ -23,10 +23,13 @@ async def lifespan(app: FastAPI):
     await init_db()
     # Load saved poll interval from DB
     async with aiosqlite.connect(DB_PATH) as db:
-        cursor = await db.execute("SELECT value FROM settings WHERE key = 'poll_interval'")
-        row = await cursor.fetchone()
-        if row:
-            set_poll_interval(int(row[0]))
+        cursor = await db.execute("SELECT key, value FROM settings")
+        rows = await cursor.fetchall()
+        for row in rows:
+            if row[0] == "poll_interval":
+                set_poll_interval(int(row[1]))
+            elif row[0] == "retention_days":
+                set_retention_days(int(row[1]))
     start_polling()
     yield
     await stop_polling()

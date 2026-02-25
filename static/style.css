@@ -740,6 +740,13 @@ input { font-family: inherit; color: inherit; }
     font-size: 0.8rem;
     color: var(--text-dim);
 }
+.setting-hint {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: -8px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+}
 
 /* ── Setup Page (Auth) ────────────────────────────────── */
 #page-setup {

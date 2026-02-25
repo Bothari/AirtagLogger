@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-    <link rel="stylesheet" href="/style.css?v=8" />
+    <link rel="stylesheet" href="/style.css?v=11" />
 </head>
 <body>
     <div id="app">
@@ -190,6 +190,12 @@
                         <span class="setting-unit">min</span>
                     </div>
                     <div class="setting-row">
+                        <span class="setting-label">Data retention</span>
+                        <input type="number" id="retention-days" value="30" min="0" max="3650">
+                        <span class="setting-unit">days</span>
+                    </div>
+                    <div class="setting-hint">0 = keep forever</div>
+                    <div class="setting-row">
                         <span class="setting-label">Manual poll</span>
                         <button class="btn-submit" id="btn-poll-now" style="padding:8px 18px;font-size:0.82rem;">Poll Now</button>
                     </div>
@@ -272,6 +278,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="/app.js?v=8"></script>
+    <script src="/app.js?v=11"></script>
 </body>
 </html>

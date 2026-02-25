@@ -136,6 +136,27 @@ function initGeneralSettings() {
         }, 800);
     });
 
+    // Save retention days on change
+    const retentionInput = document.getElementById("retention-days");
+    let retentionTimeout;
+    retentionInput.addEventListener("input", () => {
+        clearTimeout(retentionTimeout);
+        retentionTimeout = setTimeout(async () => {
+            const val = parseInt(retentionInput.value, 10);
+            if (isNaN(val) || val < 0) return;
+            try {
+                await fetch("/api/settings", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ retention_days: val }),
+                });
+                toast(val === 0 ? "Data retention: keep forever" : `Data retention set to ${val} days`, "success");
+            } catch (e) {
+                toast("Failed to save retention", "error");
+            }
+        }, 800);
+    });
+
     // Poll now button
     pollBtn.addEventListener("click", async () => {
         pollBtn.disabled = true;
@@ -160,6 +181,9 @@ async function loadSettings() {
         const settings = await fetchJSON("/api/settings");
         if (settings.poll_interval) {
             document.getElementById("poll-interval").value = settings.poll_interval;
+        }
+        if (settings.retention_days !== undefined) {
+            document.getElementById("retention-days").value = settings.retention_days;
         }
     } catch {}
 }
@@ -722,11 +746,12 @@ async function refreshMap() {
     document.getElementById("page-map").appendChild(loadingEl);
 
     await Promise.all(visible.map(async (device) => {
-        const params = new URLSearchParams({ limit: "1000" });
+        const params = new URLSearchParams();
         if (activeTimeRange > 0) {
             const from = new Date(Date.now() - activeTimeRange * 3600 * 1000);
             params.set("from_ts", from.toISOString());
         }
+        params.set("limit", "0"); // no limit — time range already bounds the data
 
         let locations;
         try {

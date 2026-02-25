@@ -167,14 +167,16 @@ async def device_locations(
     params: list = [device_id]
 
     if from_ts:
-        query += " AND timestamp >= ?"
+        query += " AND datetime(timestamp) >= datetime(?)"
         params.append(from_ts)
     if to_ts:
-        query += " AND timestamp <= ?"
+        query += " AND datetime(timestamp) <= datetime(?)"
         params.append(to_ts)
 
-    query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
-    params.extend([limit, offset])
+    query += " ORDER BY timestamp DESC"
+    if limit > 0:
+        query += " LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
 
     cursor = await db.execute(query, params)
     rows = await cursor.fetchall()
@@ -210,33 +212,46 @@ async def status(db: aiosqlite.Connection = Depends(get_db)):
 
 @router.get("/settings")
 async def get_settings(db: aiosqlite.Connection = Depends(get_db)):
-    from app.poller import get_poll_interval
+    from app.poller import get_poll_interval, get_retention_days
     cursor = await db.execute("SELECT key, value FROM settings")
     rows = await cursor.fetchall()
     settings = {row["key"]: row["value"] for row in rows}
-    # Default poll interval from env/poller if not in DB
     if "poll_interval" not in settings:
         settings["poll_interval"] = str(get_poll_interval())
+    if "retention_days" not in settings:
+        settings["retention_days"] = str(get_retention_days())
     return settings
 
 
 class SettingsUpdate(BaseModel):
     poll_interval: Optional[int] = None
+    retention_days: Optional[int] = None
 
 
 @router.put("/settings")
 async def update_settings(update: SettingsUpdate, db: aiosqlite.Connection = Depends(get_db)):
+    result = {}
     if update.poll_interval is not None:
         val = max(1, min(1440, update.poll_interval))
         await db.execute(
             "INSERT OR REPLACE INTO settings (key, value) VALUES ('poll_interval', ?)",
             (str(val),),
         )
-        await db.commit()
         from app.poller import set_poll_interval
         set_poll_interval(val)
-        return {"poll_interval": val}
-    return {}
+        result["poll_interval"] = val
+    if update.retention_days is not None:
+        val = max(0, min(3650, update.retention_days))
+        await db.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES ('retention_days', ?)",
+            (str(val),),
+        )
+        from app.poller import set_retention_days
+        set_retention_days(val)
+        result["retention_days"] = val
+    if result:
+        await db.commit()
+    return result
 
 
 # ── Export endpoint ──────────────────────────────────────
@@ -268,10 +283,10 @@ async def export_data(
     query = f"SELECT * FROM locations WHERE device_id IN ({placeholders})"
     params: list = list(device_ids)
     if from_ts:
-        query += " AND timestamp >= ?"
+        query += " AND datetime(timestamp) >= datetime(?)"
         params.append(from_ts)
     if to_ts:
-        query += " AND timestamp <= ?"
+        query += " AND datetime(timestamp) <= datetime(?)"
         params.append(to_ts)
     query += " ORDER BY device_id, timestamp ASC"
 
