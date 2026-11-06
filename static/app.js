@@ -1098,10 +1098,10 @@ function isAdmin() {
 }
 
 // ── Boot / app login ─────────────────────────────────────
-let authConfig = { setup_required: false, oidc_enabled: false };
+let authConfig = { setup_required: false, oidc_enabled: false, local_login: true, oidc_configured: false };
 
 const SSO_ERRORS = {
-    failed: "Single sign-on failed. Try again, or sign in with a password.",
+    failed: "Single sign-on failed. Please try again.",
     expired: "The sign-in took too long. Please try again.",
     disabled: "Single sign-on is turned off.",
     not_provisioned: "Your SSO account isn't set up here yet. Ask an admin to create it.",
@@ -1125,6 +1125,15 @@ async function boot() {
     }
 
     if (!me) {
+        // With SSO as the only way in, go straight to it: opening the app from
+        // the identity provider's app list then lands on the map. Not after a
+        // failed attempt, though, or a broken setup would loop forever.
+        if (authConfig.oidc_enabled && !authConfig.local_login && !authConfig.setup_required && !ssoError) {
+            document.getElementById("login-subtitle").textContent = "Redirecting to sign-in…";
+            document.getElementById("page-login").classList.add("active");
+            location.replace("/api/auth/oidc/start");
+            return;
+        }
         showLogin(ssoError ? (SSO_ERRORS[ssoError] || SSO_ERRORS.failed) : null);
         return;
     }
@@ -1155,7 +1164,11 @@ function showLogin(notice = null) {
     const sso = document.getElementById("btn-sso");
     sso.hidden = !authConfig.oidc_enabled;
     sso.textContent = authConfig.oidc_button_label || "Sign in with SSO";
-    document.getElementById("login-divider").hidden = !authConfig.oidc_enabled;
+    const local = authConfig.local_login !== false;
+    document.getElementById("login-local").hidden = !local;
+    // Disabled so the hidden required fields don't block the form.
+    document.querySelectorAll("#login-local input").forEach(i => { i.disabled = !local; });
+    document.getElementById("login-divider").hidden = !(authConfig.oidc_enabled && local);
 }
 
 function showPasswordChange() {
@@ -1266,7 +1279,9 @@ function initLogin() {
         knownDevices.clear();
         clearMapLayers();
         if (geofenceLayer) { map.removeLayer(geofenceLayer); geofenceLayer = null; }
-        showLogin();
+        // No automatic SSO redirect here: the identity provider would sign
+        // them straight back in.
+        showLogin("You're signed out.");
     }));
 }
 
@@ -1283,12 +1298,15 @@ function renderAccount() {
             ? "Add your Pushover user key on your card in the Users tab to get alerts."
             : "Alerts are recorded below but not sent. Ask an admin to add your Pushover key.";
 
+    const ssoOnly = authConfig.local_login === false;
     const ssoRow = document.getElementById("sso-row");
-    ssoRow.hidden = !authConfig.oidc_enabled && !me.sso_linked;
+    ssoRow.hidden = !authConfig.oidc_configured && !me.sso_linked;
     document.getElementById("sso-status").textContent = me.sso_linked ? "Linked" : "Not linked";
     const linkBtn = document.getElementById("btn-sso-link");
     linkBtn.textContent = me.sso_linked ? "Unlink" : "Link";
-    linkBtn.hidden = !me.sso_linked && !authConfig.oidc_enabled;
+    // Can't unlink the only way in; linking works once SSO is configured.
+    linkBtn.hidden = me.sso_linked ? ssoOnly : !authConfig.oidc_configured;
+    document.getElementById("account-pw-section").hidden = ssoOnly;
 
     // SSO-only accounts set a first password without a current one.
     document.getElementById("account-pw-current-group").hidden = !me.has_password;
@@ -1759,13 +1777,23 @@ async function loadUsers(expandId = null) {
     const list = document.getElementById("user-list");
     const openId = expandId || list.querySelector(".device-card.expanded")?.dataset.id;
     list.innerHTML = "";
+    // With SSO as the only way in, accounts come from first sign-in and
+    // passwords are unused, so there's nothing to create or reset here.
+    const ssoOnly = authConfig.local_login === false;
+    document.getElementById("btn-add-user").hidden = ssoOnly;
+    if (ssoOnly) document.getElementById("user-form").hidden = true;
+    document.getElementById("users-hint").textContent = ssoOnly
+        ? "Single sign-on is the only way in. To add someone, give them access to this app in your identity provider; their account appears here after their first sign-in, with nothing shared until you share AirTags with them."
+        : "People who sign in with SSO get an account automatically, with nothing shared until you share AirTags with them.";
 
     users.forEach(u => {
         const card = document.createElement("div");
         card.className = "device-card" + (u.id === openId ? " expanded" : "");
         card.dataset.id = u.id;
         const isSelf = u.id === me.id;
-        const methods = [u.has_password ? "password" : "", u.sso_linked ? "SSO" : ""].filter(Boolean).join(" + ") || "no sign-in method";
+        const methods = ssoOnly
+            ? (u.sso_linked ? "SSO" : "SSO not linked: can't sign in")
+            : [u.has_password ? "password" : "", u.sso_linked ? "SSO" : ""].filter(Boolean).join(" + ") || "no sign-in method";
         const shareCount = u.role === "admin" ? "all AirTags" : `${u.shares.length} AirTag${u.shares.length === 1 ? "" : "s"}`;
         card.innerHTML = `
             <div class="device-card-header">
@@ -1808,13 +1836,13 @@ async function loadUsers(expandId = null) {
                             <option value="edit" ${v === "edit" ? "selected" : ""}>Edit</option>
                         </select></div>`;
                 }).join("") : '<div class="setting-hint">No AirTags yet.</div>'}</div>`}
-                <div class="device-setting">
+                ${ssoOnly ? "" : `<div class="device-setting">
                     <span class="device-setting-label">Password</span>
                     <div class="device-setting-value inline-controls">
                         <input type="text" class="reset-pw" placeholder="New temporary password" autocomplete="off">
                         <button class="btn-small btn-reset-pw">Reset</button>
                     </div>
-                </div>
+                </div>`}
                 ${isSelf ? "" : `<div class="device-card-actions"><button class="btn-delete">Delete user</button></div>`}
             </div>`;
 
@@ -1871,7 +1899,7 @@ async function loadUsers(expandId = null) {
             } catch (e) { toast(e.message, "error"); }
         }));
 
-        card.querySelector(".btn-reset-pw").addEventListener("click", async () => {
+        card.querySelector(".btn-reset-pw")?.addEventListener("click", async () => {
             const input = card.querySelector(".reset-pw");
             try {
                 await api("POST", `/api/admin/users/${u.id}/reset-password`, { new_password: input.value });
@@ -1930,6 +1958,7 @@ function initAdminSettings() {
             renderSso(await api("PUT", "/api/admin/sso", body));
             authConfig = await api("GET", "/api/auth/config");
             renderAccount();
+            loadUsers();
             toast("SSO settings saved", "success");
         } catch (err) { toast(err.message, "error"); }
     });

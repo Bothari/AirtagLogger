@@ -53,6 +53,10 @@ OIDC_KEYS = ("oidc_enabled", "oidc_provider_url", "oidc_client_id", "oidc_client
              "oidc_scopes", "oidc_button_label", "oidc_auto_provision", "public_url")
 
 
+def _configured(cfg: dict) -> bool:
+    return bool(cfg["oidc_provider_url"] and cfg["oidc_client_id"])
+
+
 async def _oidc_cfg(db) -> dict:
     cfg = {k: await get_setting(db, k, "") for k in OIDC_KEYS}
     cfg["oidc_enabled"] = cfg["oidc_enabled"] == "1"
@@ -60,6 +64,16 @@ async def _oidc_cfg(db) -> dict:
     cfg["oidc_scopes"] = cfg["oidc_scopes"] or "openid email profile"
     cfg["oidc_button_label"] = cfg["oidc_button_label"] or "Sign in with SSO"
     return cfg
+
+
+# When SSO is on, it is the only way in: password sign-in, password changes and
+# admin-set passwords are all refused. If the identity provider breaks, an admin
+# with shell access runs `python -m app.recover disable-sso` in the container.
+SSO_ONLY = "Password sign-in is turned off while single sign-on is enabled"
+
+
+async def _sso_only(db) -> bool:
+    return (await get_setting(db, "oidc_enabled", "")) == "1"
 
 
 # ── Status / setup ──────────────────────────────────────
@@ -72,6 +86,9 @@ async def auth_config(db: aiosqlite.Connection = Depends(get_db)):
         "setup_required": auth.setup_pending(),
         "oidc_enabled": cfg["oidc_enabled"],
         "oidc_button_label": cfg["oidc_button_label"],
+        "local_login": not cfg["oidc_enabled"],
+        # lets a signed-in user link SSO before it is switched on
+        "oidc_configured": _configured(cfg),
     }
 
 
@@ -114,6 +131,8 @@ class LoginBody(BaseModel):
 @router.post("/auth/login")
 async def login(body: LoginBody, request: Request, response: Response,
                 db: aiosqlite.Connection = Depends(get_db)):
+    if await _sso_only(db):
+        raise HTTPException(403, SSO_ONLY)
     ip_key = f"ip:{auth.client_ip(request)}"
     user_key = f"user:{body.username.strip().lower()}"
     auth.check_rate_limit(ip_key, user_key)
@@ -153,6 +172,8 @@ class ChangePasswordBody(BaseModel):
 @router.post("/auth/change-password")
 async def change_password(body: ChangePasswordBody, request: Request, response: Response,
                           user=Depends(require_session), db: aiosqlite.Connection = Depends(get_db)):
+    if await _sso_only(db):
+        raise HTTPException(400, SSO_ONLY)
     # SSO-only users setting a first password have no current one to prove.
     if user["password_hash"] and not auth.verify_password(body.current_password or "", user["password_hash"]):
         raise HTTPException(401, "Current password is incorrect")
@@ -195,6 +216,8 @@ async def update_prefs(body: dict, user=Depends(require_user), db: aiosqlite.Con
 
 @router.post("/auth/unlink-sso")
 async def unlink_sso(user=Depends(require_user), db: aiosqlite.Connection = Depends(get_db)):
+    if await _sso_only(db):
+        raise HTTPException(400, "SSO is the only way to sign in, so it can't be unlinked")
     if not user["password_hash"]:
         raise HTTPException(400, "Set a password first, or you will be locked out")
     await db.execute("UPDATE users SET oidc_iss = NULL, oidc_sub = NULL WHERE id = ?", (user["id"],))
@@ -268,7 +291,9 @@ class _OidcError(Exception):
 @router.get("/auth/oidc/start")
 async def oidc_start(request: Request, link: int = 0, db: aiosqlite.Connection = Depends(get_db)):
     cfg = await _oidc_cfg(db)
-    if not cfg["oidc_enabled"]:
+    # Linking is allowed once the provider is configured, before SSO is switched
+    # on: admins must link their own account first (see put_sso).
+    if not cfg["oidc_enabled"] and not (link and _configured(cfg)):
         raise HTTPException(400, "SSO is not enabled")
 
     link_user_id = None
@@ -331,7 +356,7 @@ async def _oidc_callback_inner(request: Request, db, raw_state: str, code: str, 
         raise _OidcError("failed", "State mismatch")
 
     cfg = await _oidc_cfg(db)
-    if not cfg["oidc_enabled"]:
+    if not cfg["oidc_enabled"] and not (st.get("link") and _configured(cfg)):
         raise _OidcError("disabled", "SSO disabled")
     client_id = cfg["oidc_client_id"]
     try:
@@ -419,7 +444,10 @@ async def _oidc_callback_inner(request: Request, db, raw_state: str, code: str, 
         base = re.sub(r"[^A-Za-z0-9._@-]", "", base)[:32] or "user"
         user = await _provision(db, iss, sub, base, email if email_verified else "")
 
-    await db.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?", (user["id"],))
+    # Signing in through SSO already proves identity; a pending "choose a new
+    # password" would otherwise lock them out, since passwords are off with SSO.
+    await db.execute("UPDATE users SET last_login_at = CURRENT_TIMESTAMP, force_password_change = 0 WHERE id = ?",
+                     (user["id"],))
     await db.commit()
     resp = _done_page("/")
     auth.set_session_cookie(resp, request, user["id"], user["session_version"])
@@ -480,6 +508,10 @@ async def put_sso(body: SsoUpdate, admin=Depends(require_admin), db: aiosqlite.C
         if not data["public_url"].startswith("https://"):
             raise HTTPException(400, "Public URL must be https:// (SSO only works over HTTPS)")
     if data.get("oidc_enabled"):
+        # Turning SSO on turns password sign-in off. An admin who hasn't linked
+        # SSO would come back as a brand-new non-admin account.
+        if not admin["oidc_sub"]:
+            raise HTTPException(400, "Link SSO to your own account (Account tab) before turning SSO on")
         provider = data.get("oidc_provider_url", await get_setting(db, "oidc_provider_url", ""))
         try:
             await _get_oidc_config(provider)
@@ -530,6 +562,8 @@ class CreateUserBody(BaseModel):
 
 @router.post("/admin/users")
 async def create_user(body: CreateUserBody, admin=Depends(require_admin), db: aiosqlite.Connection = Depends(get_db)):
+    if await _sso_only(db):
+        raise HTTPException(400, "With SSO on, accounts are created when someone first signs in through SSO")
     username = _validate_username(body.username)
     if body.role not in ("admin", "user"):
         raise HTTPException(400, "Role must be admin or user")
@@ -618,6 +652,8 @@ class ResetPasswordBody(BaseModel):
 @router.post("/admin/users/{user_id}/reset-password")
 async def reset_password(user_id: str, body: ResetPasswordBody, admin=Depends(require_admin),
                          db: aiosqlite.Connection = Depends(get_db)):
+    if await _sso_only(db):
+        raise HTTPException(400, SSO_ONLY)
     auth.validate_password(body.new_password)
     cursor = await db.execute(
         """UPDATE users SET password_hash = ?, force_password_change = 1,

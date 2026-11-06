@@ -30,15 +30,17 @@
                 <form id="login-form" class="setup-step" hidden>
                     <button type="button" class="btn-sso setup-btn" id="btn-sso" hidden>Sign in with SSO</button>
                     <div class="login-divider" id="login-divider" hidden><span>or</span></div>
-                    <div class="form-group">
-                        <label for="login-username">Username</label>
-                        <input type="text" id="login-username" autocomplete="username" autocapitalize="off" required>
+                    <div id="login-local">
+                        <div class="form-group">
+                            <label for="login-username">Username</label>
+                            <input type="text" id="login-username" autocomplete="username" autocapitalize="off" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Password</label>
+                            <input type="password" id="login-password" autocomplete="current-password" required>
+                        </div>
+                        <button type="submit" class="btn-submit setup-btn">Sign In</button>
                     </div>
-                    <div class="form-group">
-                        <label for="login-password">Password</label>
-                        <input type="password" id="login-password" autocomplete="current-password" required>
-                    </div>
-                    <button type="submit" class="btn-submit setup-btn">Sign In</button>
                 </form>
 
                 <!-- First run: create the admin -->
@@ -309,6 +311,7 @@
                         <button class="btn-small" id="btn-sso-link">Link</button>
                     </div>
 
+                    <div id="account-pw-section">
                     <div class="section-title" id="pw-title">Change password</div>
                     <form id="account-pw-form" class="inline-form">
                         <div class="form-group" id="account-pw-current-group">
@@ -324,6 +327,7 @@
                             <button type="submit" class="btn-submit">Update Password</button>
                         </div>
                     </form>
+                    </div>
 
                     <button class="btn-cancel btn-logout account-logout">Sign out</button>
                 </div>
@@ -359,7 +363,7 @@
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         Add User
                     </button>
-                    <div class="setting-hint section-hint">People who sign in with SSO get an account automatically, with nothing shared until you share AirTags with them.</div>
+                    <div class="setting-hint section-hint" id="users-hint">People who sign in with SSO get an account automatically, with nothing shared until you share AirTags with them.</div>
                 </div>
 
                 <!-- General Tab -->
@@ -614,6 +618,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="/app.js?v=17"></script>
+    <script src="/app.js?v=18"></script>
 </body>
 </html>
