@@ -28,10 +28,14 @@ document.addEventListener("DOMContentLoaded", async () => {
 // ── Map ──────────────────────────────────────────────────
 function initMap() {
     map = L.map("map", { zoomControl: true }).setView([40, -95], 4);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
-        maxZoom: 19,
+    // CARTO basemaps now require an API key; Esri Dark Gray Canvas is keyless
+    const esri = "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas";
+    const tileOpts = { maxNativeZoom: 16, maxZoom: 19 };
+    L.tileLayer(`${esri}/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}`, {
+        ...tileOpts,
+        attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors',
     }).addTo(map);
+    L.tileLayer(`${esri}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, tileOpts).addTo(map);
 }
 
 // ── Navigation ───────────────────────────────────────────
