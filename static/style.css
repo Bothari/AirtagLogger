@@ -1477,3 +1477,19 @@ select {
         font-size: 16px !important;
     }
 }
+
+/* iOS Safari sizes date/time inputs from their native control and ignores
+   width/min-width unless the native appearance is turned off. */
+.export-date-group input[type="datetime-local"] {
+    -webkit-appearance: none;
+    appearance: none;
+    display: block;
+    max-width: 100%;
+    min-height: 2.6em;
+}
+.export-date-group input[type="datetime-local"]::-webkit-date-and-time-value {
+    text-align: left;
+}
+@media (max-width: 768px) {
+    .export-time-custom { flex-direction: column; gap: 10px; }
+}
