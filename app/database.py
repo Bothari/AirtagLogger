@@ -82,7 +82,12 @@ CREATE TABLE IF NOT EXISTS geofences (
     latitude   REAL NOT NULL,
     longitude  REAL NOT NULL,
     radius_m   REAL NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- 'circle' uses latitude/longitude/radius_m. 'polygon' tests against the
+    -- [[lat, lon], ...] JSON in polygon; its lat/lon/radius_m are a bounding
+    -- circle kept for display.
+    shape      TEXT NOT NULL DEFAULT 'circle',
+    polygon    TEXT
 );
 
 -- kind: 'enter' / 'exit' / 'both' (need geofence_id) or 'stale' (needs stale_hours).
@@ -116,6 +121,8 @@ MIGRATIONS = [
     "ALTER TABLE devices ADD COLUMN original_name TEXT",
     "ALTER TABLE devices ADD COLUMN enabled INTEGER DEFAULT 1",
     "ALTER TABLE locations ADD COLUMN accuracy REAL",
+    "ALTER TABLE geofences ADD COLUMN shape TEXT NOT NULL DEFAULT 'circle'",
+    "ALTER TABLE geofences ADD COLUMN polygon TEXT",
 ]
 
 DROP_UNIQUE_MIGRATION = """

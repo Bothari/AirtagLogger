@@ -1493,3 +1493,59 @@ select {
 @media (max-width: 768px) {
     .export-time-custom { flex-direction: column; gap: 10px; }
 }
+
+/* Map banners (pick a point / draw an area) */
+.map-banner { flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px); }
+#draw-banner {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px 8px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+#draw-banner span { margin-right: 4px; }
+@media (max-width: 768px) {
+    #draw-banner { border-radius: var(--radius); width: calc(100% - 24px); }
+    #draw-banner span { flex-basis: 100%; text-align: center; margin: 0 0 2px; }
+}
+.btn-small:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.draw-vertex {
+    background: #fff;
+    border: 2px solid var(--accent);
+    border-radius: 3px;
+    cursor: grab;
+}
+.draw-vertex.first { background: var(--accent); }
+
+/* Circle / Area toggle */
+.segmented {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+}
+.segmented button {
+    padding: 7px 16px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    background: var(--bg-input);
+}
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button.active { background: var(--accent-dim); color: var(--accent); }
+.area-summary { font-size: 0.85rem; color: var(--text-muted); }
+/* On phones the banners would cover the zoom buttons; sit them above the scrubber. */
+@media (max-width: 768px) {
+    #pick-banner, #draw-banner { top: auto; bottom: 56px; }
+}

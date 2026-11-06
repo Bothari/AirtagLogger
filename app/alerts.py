@@ -5,16 +5,19 @@ Each user owns their own geofences and alert rules, on devices they can see.
 After every poll, evaluate_rules() compares each rule's device against its
 geofence (or staleness threshold) and notifies via Pushover on a change of state.
 
-AirTag fixes are noisy, so geofence state uses hysteresis: a device is 'in' at
-distance <= radius, 'out' only beyond radius + margin, and keeps its previous
-state in between. Fixes whose reported accuracy is worse than the radius are
-ignored -- they cannot tell inside from outside.
+Geofences are circles or polygons (drawn areas, which may be concave).
+
+AirTag fixes are noisy, so geofence state uses hysteresis: a device is 'out'
+only once it is clearly beyond the boundary, and keeps its previous state in
+the band just outside. A fix too imprecise to tell inside from outside leaves
+the state unchanged: for circles, accuracy worse than the radius; for polygons,
+accuracy worse than the fix's distance to the boundary.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-import math
 import re
 import uuid
 from datetime import datetime, timezone
@@ -25,8 +28,10 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app import geo
 from app.auth import require_admin, require_device, require_user
 from app.database import connect, get_db, get_setting, set_setting
+from app.geo import haversine_m
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,14 +39,8 @@ router = APIRouter()
 PUSHOVER_URL = "https://api.pushover.net/1/messages.json"
 MIN_RADIUS_M = 25
 MAX_RADIUS_M = 50_000
-
-
-def haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    r = 6_371_000.0
-    p1, p2 = math.radians(lat1), math.radians(lat2)
-    dp, dl = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
-    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
-    return 2 * r * math.asin(math.sqrt(a))
+MIN_AREA_M2 = 500
+POLYGON_MARGIN_M = 25.0
 
 
 def hysteresis_margin(radius_m: float) -> float:
@@ -54,6 +53,16 @@ def geofence_state(distance_m: float, radius_m: float, previous: str | None) -> 
     if distance_m > radius_m + hysteresis_margin(radius_m):
         return "out"
     return previous  # in the dead band: no change
+
+
+def polygon_state(inside: bool, boundary_m: float, accuracy: float | None, previous: str | None) -> str | None:
+    if accuracy is not None and accuracy >= boundary_m:
+        return previous  # the fix's error reaches the boundary: could be either side
+    if inside:
+        return "in"
+    if boundary_m > POLYGON_MARGIN_M:
+        return "out"
+    return previous  # just outside: no change
 
 
 def _parse_ts(ts: str) -> datetime:
@@ -100,7 +109,7 @@ async def _notify(db, rule, user_row, title: str, message: str, url: str | None)
 
 RULES_SQL = """
     SELECT r.*, g.name AS geofence_name, g.latitude AS g_lat, g.longitude AS g_lon, g.radius_m,
-           d.name AS device_name
+           g.shape, g.polygon, d.name AS device_name
     FROM alert_rules r
     JOIN devices d ON d.id = r.device_id AND d.enabled = 1
     LEFT JOIN geofences g ON g.id = r.geofence_id
@@ -151,11 +160,19 @@ async def _evaluate_rule(db, rule, user, loc, now: datetime):
 
     if rule["g_lat"] is None:
         return
-    if loc["accuracy"] is not None and loc["accuracy"] > rule["radius_m"]:
-        return  # too imprecise to judge
-    distance = haversine_m(loc["latitude"], loc["longitude"], rule["g_lat"], rule["g_lon"])
     previous = rule["last_state"]
-    state = geofence_state(distance, rule["radius_m"], previous)
+    if rule["shape"] == "polygon":
+        poly = json.loads(rule["polygon"])
+        inside = geo.point_in_polygon(loc["latitude"], loc["longitude"], poly)
+        boundary = geo.distance_to_boundary_m(loc["latitude"], loc["longitude"], poly)
+        state = polygon_state(inside, boundary, loc["accuracy"], previous)
+        detail = f"{boundary:.0f} m {'inside' if inside else 'outside'} the boundary."
+    else:
+        if loc["accuracy"] is not None and loc["accuracy"] > rule["radius_m"]:
+            return  # too imprecise to judge
+        distance = haversine_m(loc["latitude"], loc["longitude"], rule["g_lat"], rule["g_lon"])
+        state = geofence_state(distance, rule["radius_m"], previous)
+        detail = f"{distance:.0f} m from the centre (radius {rule['radius_m']:.0f} m)."
     if state is None or state == previous:
         return
     await db.execute("UPDATE alert_rules SET last_state = ? WHERE id = ?", (state, rule["id"]))
@@ -164,8 +181,7 @@ async def _evaluate_rule(db, rule, user, loc, now: datetime):
     entered = state == "in"
     if rule["kind"] == "both" or (rule["kind"] == "enter") == entered:
         verb = "arrived at" if entered else "left"
-        await _notify(db, rule, user, f"{rule['device_name']} {verb} {rule['geofence_name']}",
-                      f"{distance:.0f} m from the centre (radius {rule['radius_m']:.0f} m).", maps_url)
+        await _notify(db, rule, user, f"{rule['device_name']} {verb} {rule['geofence_name']}", detail, maps_url)
         await db.execute("UPDATE alert_rules SET last_fired_at = CURRENT_TIMESTAMP WHERE id = ?", (rule["id"],))
 
 
@@ -173,18 +189,56 @@ async def _evaluate_rule(db, rule, user, loc, now: datetime):
 
 class GeofenceBody(BaseModel):
     name: str
-    latitude: float
-    longitude: float
-    radius_m: float
+    shape: str = "circle"
+    # circle
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    radius_m: Optional[float] = None
+    # polygon: [[lat, lon], ...], not closed
+    polygon: Optional[list[list[float]]] = None
 
 
-def _check_geofence(body: GeofenceBody):
-    if not body.name.strip():
+def _valid_coord(lat: float, lon: float) -> bool:
+    return -90 <= lat <= 90 and -180 <= lon <= 180
+
+
+def _check_geofence(body: GeofenceBody) -> tuple:
+    """Validate and return the row values (name, shape, lat, lon, radius_m, polygon_json).
+    For polygons, lat/lon/radius describe a bounding circle used for display."""
+    name = body.name.strip()
+    if not name:
         raise HTTPException(400, "Name required")
-    if not (-90 <= body.latitude <= 90 and -180 <= body.longitude <= 180):
-        raise HTTPException(400, "Invalid coordinates")
-    if not (MIN_RADIUS_M <= body.radius_m <= MAX_RADIUS_M):
-        raise HTTPException(400, f"Radius must be {MIN_RADIUS_M}-{MAX_RADIUS_M} m")
+    if body.shape == "circle":
+        if body.latitude is None or body.longitude is None or body.radius_m is None:
+            raise HTTPException(400, "A circle needs a centre and radius")
+        if not _valid_coord(body.latitude, body.longitude):
+            raise HTTPException(400, "Invalid coordinates")
+        if not (MIN_RADIUS_M <= body.radius_m <= MAX_RADIUS_M):
+            raise HTTPException(400, f"Radius must be {MIN_RADIUS_M}-{MAX_RADIUS_M} m")
+        return name, "circle", body.latitude, body.longitude, body.radius_m, None
+    if body.shape == "polygon":
+        poly = body.polygon or []
+        if len(poly) > 1 and poly[0] == poly[-1]:
+            poly = poly[:-1]  # accept an explicitly closed ring
+        if not (3 <= len(poly) <= geo.MAX_VERTICES):
+            raise HTTPException(400, f"An area needs 3-{geo.MAX_VERTICES} points")
+        if any(len(p) != 2 or not _valid_coord(*p) for p in poly):
+            raise HTTPException(400, "Invalid coordinates")
+        if not geo.is_simple(poly):
+            raise HTTPException(400, "The outline crosses itself. Move a point so the edges don't cross.")
+        if geo.area_m2(poly) < MIN_AREA_M2:
+            raise HTTPException(400, f"The area is too small (minimum {MIN_AREA_M2} m²)")
+        lat, lon, radius = geo.bounding_circle(poly)
+        if radius > MAX_RADIUS_M:
+            raise HTTPException(400, f"The area is too large (max {MAX_RADIUS_M // 1000} km across from its centre)")
+        return name, "polygon", lat, lon, radius, json.dumps([[round(a, 7), round(b, 7)] for a, b in poly])
+    raise HTTPException(400, "shape must be circle or polygon")
+
+
+def _geofence_out(row) -> dict:
+    out = dict(row)
+    out["polygon"] = json.loads(row["polygon"]) if row["polygon"] else None
+    return out
 
 
 async def _own_geofence(db, user, geofence_id: str):
@@ -201,29 +255,31 @@ async def list_geofences(user=Depends(require_user), db: aiosqlite.Connection = 
     rows = await (await db.execute(
         "SELECT * FROM geofences WHERE user_id = ? ORDER BY name COLLATE NOCASE", (user["id"],)
     )).fetchall()
-    return [dict(r) for r in rows]
+    return [_geofence_out(r) for r in rows]
 
 
 @router.post("/geofences")
 async def create_geofence(body: GeofenceBody, user=Depends(require_user), db: aiosqlite.Connection = Depends(get_db)):
-    _check_geofence(body)
+    values = _check_geofence(body)
     gid = str(uuid.uuid4())
     await db.execute(
-        "INSERT INTO geofences (id, user_id, name, latitude, longitude, radius_m) VALUES (?, ?, ?, ?, ?, ?)",
-        (gid, user["id"], body.name.strip(), body.latitude, body.longitude, body.radius_m),
+        "INSERT INTO geofences (id, user_id, name, shape, latitude, longitude, radius_m, polygon)"
+        " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (gid, user["id"], *values),
     )
     await db.commit()
-    return dict(await _own_geofence(db, user, gid))
+    return _geofence_out(await _own_geofence(db, user, gid))
 
 
 @router.put("/geofences/{geofence_id}")
 async def update_geofence(geofence_id: str, body: GeofenceBody, user=Depends(require_user),
                           db: aiosqlite.Connection = Depends(get_db)):
     await _own_geofence(db, user, geofence_id)
-    _check_geofence(body)
+    values = _check_geofence(body)
     await db.execute(
-        "UPDATE geofences SET name = ?, latitude = ?, longitude = ?, radius_m = ? WHERE id = ?",
-        (body.name.strip(), body.latitude, body.longitude, body.radius_m, geofence_id),
+        "UPDATE geofences SET name = ?, shape = ?, latitude = ?, longitude = ?, radius_m = ?, polygon = ?"
+        " WHERE id = ?",
+        (*values, geofence_id),
     )
     # Moving the fence invalidates every rule's notion of in/out.
     await db.execute("UPDATE alert_rules SET last_state = NULL WHERE geofence_id = ?", (geofence_id,))

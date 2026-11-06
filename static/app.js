@@ -13,6 +13,9 @@ let me = null;          // the signed-in user (from /api/auth/me)
 let geofences = [];     // this user's places
 let geofenceLayer = null;
 let pickingGeofence = false;
+let geofenceShape = "circle";   // shape selected in the Place form
+let draftPolygon = null;        // [[lat, lon], ...] for the Place form's area
+let drawing = null;             // active area-drawing session on the map
 
 // ── Init ─────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1362,15 +1365,28 @@ function initAlertsTab() {
     document.getElementById("btn-geofence-cancel").addEventListener("click", closeGeofenceForm);
     document.getElementById("btn-geofence-pick").addEventListener("click", startPicking);
     document.getElementById("btn-pick-cancel").addEventListener("click", stopPicking);
+    document.getElementById("btn-geofence-draw").addEventListener("click", startDrawing);
+    document.getElementById("btn-draw-undo").addEventListener("click", () => {
+        if (drawing && drawing.points.length) { drawing.points.pop(); renderDrawing(); }
+    });
+    document.getElementById("btn-draw-cancel").addEventListener("click", () => stopDrawing(false));
+    document.getElementById("btn-draw-done").addEventListener("click", () => stopDrawing(true));
+    document.getElementById("geofence-shape").addEventListener("click", (e) => {
+        const btn = e.target.closest("button[data-shape]");
+        if (btn) setGeofenceShape(btn.dataset.shape);
+    });
     gForm.addEventListener("submit", async (e) => {
         e.preventDefault();
         const id = document.getElementById("geofence-id").value;
-        const body = {
-            name: document.getElementById("geofence-name").value.trim(),
-            latitude: parseFloat(document.getElementById("geofence-lat").value),
-            longitude: parseFloat(document.getElementById("geofence-lon").value),
-            radius_m: parseFloat(document.getElementById("geofence-radius").value),
-        };
+        const body = { name: document.getElementById("geofence-name").value.trim(), shape: geofenceShape };
+        if (geofenceShape === "polygon") {
+            if (!draftPolygon || draftPolygon.length < 3) { toast("Draw the area on the map first", "error"); return; }
+            body.polygon = draftPolygon;
+        } else {
+            body.latitude = parseFloat(document.getElementById("geofence-lat").value);
+            body.longitude = parseFloat(document.getElementById("geofence-lon").value);
+            body.radius_m = parseFloat(document.getElementById("geofence-radius").value);
+        }
         try {
             await api(id ? "PUT" : "POST", id ? `/api/geofences/${id}` : "/api/geofences", body);
             closeGeofenceForm();
@@ -1456,14 +1472,18 @@ function renderGeofenceList() {
     geofences.forEach(g => {
         const row = document.createElement("div");
         row.className = "item-row";
+        const meta = g.shape === "polygon"
+            ? `Area · ${g.polygon.length} points · about ${formatDistance(g.radius_m * 2)} across`
+            : `${g.radius_m.toFixed(0)} m around ${g.latitude.toFixed(5)}, ${g.longitude.toFixed(5)}`;
         row.innerHTML = `<div class="item-main"><div class="item-title">${esc(g.name)}</div>
-            <div class="item-meta">${g.radius_m.toFixed(0)} m around ${g.latitude.toFixed(5)}, ${g.longitude.toFixed(5)}</div></div>
+            <div class="item-meta">${meta}</div></div>
             <button class="btn-small btn-show">Show</button>
             <button class="btn-small btn-edit">Edit</button>
             <button class="btn-small btn-danger btn-del">Delete</button>`;
         row.querySelector(".btn-show").addEventListener("click", () => {
             navigateTo("page-map");
-            map.flyTo([g.latitude, g.longitude], 16, { duration: 0.8 });
+            if (g.shape === "polygon") map.flyToBounds(L.latLngBounds(g.polygon), { padding: [40, 40], duration: 0.8 });
+            else map.flyTo([g.latitude, g.longitude], 16, { duration: 0.8 });
         });
         row.querySelector(".btn-edit").addEventListener("click", () => openGeofenceForm(g));
         row.querySelector(".btn-del").addEventListener("click", () => confirmInline(row, `Delete ${g.name} and its alerts?`));
@@ -1549,7 +1569,9 @@ function openGeofenceForm(g = null) {
     const center = map.getCenter();
     document.getElementById("geofence-lat").value = (g ? g.latitude : center.lat).toFixed(6);
     document.getElementById("geofence-lon").value = (g ? g.longitude : center.lng).toFixed(6);
-    document.getElementById("geofence-radius").value = g ? g.radius_m : 150;
+    document.getElementById("geofence-radius").value = g && g.shape !== "polygon" ? g.radius_m : 150;
+    draftPolygon = g && g.polygon ? g.polygon.map(p => [...p]) : null;
+    setGeofenceShape(g ? g.shape : "circle");
     form.querySelector('button[type="submit"]').textContent = g ? "Save" : "Add Place";
     form.hidden = false;
     document.getElementById("btn-add-geofence").hidden = true;
@@ -1576,19 +1598,101 @@ function stopPicking() {
 }
 
 function onMapPick(e) {
+    if (drawing) {
+        drawing.points.push([e.latlng.lat, e.latlng.lng]);
+        renderDrawing();
+        return;
+    }
     if (!pickingGeofence) return;
     document.getElementById("geofence-lat").value = e.latlng.lat.toFixed(6);
     document.getElementById("geofence-lon").value = e.latlng.lng.toFixed(6);
     stopPicking();
 }
 
+function setGeofenceShape(shape) {
+    geofenceShape = shape;
+    const area = shape === "polygon";
+    document.querySelectorAll("#geofence-shape button").forEach(b => b.classList.toggle("active", b.dataset.shape === shape));
+    document.getElementById("geofence-circle-fields").hidden = area;
+    document.getElementById("geofence-area-fields").hidden = !area;
+    // Disabled, not just hidden: hidden `required` fields would block submit.
+    document.querySelectorAll("#geofence-circle-fields input").forEach(i => { i.disabled = area; });
+    document.getElementById("btn-geofence-pick").hidden = area;
+    document.getElementById("btn-geofence-draw").hidden = !area;
+    updateAreaSummary();
+}
+
+function updateAreaSummary() {
+    const el = document.getElementById("geofence-area-summary");
+    const n = draftPolygon ? draftPolygon.length : 0;
+    el.textContent = n >= 3 ? `Area with ${n} points.` : "No area drawn yet.";
+    document.getElementById("btn-geofence-draw").textContent = n >= 3 ? "Edit on map" : "Draw on map";
+}
+
+function formatDistance(m) {
+    return m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${Math.round(m)} m`;
+}
+
+// Area drawing: tap the map to add points; drag a point to move it; Undo removes
+// the last one. The draft only replaces the form's area when Done is pressed.
+function startDrawing() {
+    drawing = { points: draftPolygon ? draftPolygon.map(p => [...p]) : [], layer: L.layerGroup().addTo(map) };
+    navigateTo("page-map");
+    document.getElementById("draw-banner").hidden = false;
+    document.getElementById("map").classList.add("picking");
+    if (drawing.points.length >= 3) map.fitBounds(L.latLngBounds(drawing.points), { padding: [60, 60] });
+    renderDrawing();
+}
+
+function stopDrawing(save) {
+    if (!drawing) return;
+    if (save) {
+        if (drawing.points.length < 3) { toast("An area needs at least 3 points", "error"); return; }
+        draftPolygon = drawing.points;
+    }
+    map.removeLayer(drawing.layer);
+    drawing = null;
+    document.getElementById("draw-banner").hidden = true;
+    document.getElementById("map").classList.remove("picking");
+    updateAreaSummary();
+    navigateTo("page-settings");
+}
+
+function renderDrawing() {
+    const { points, layer } = drawing;
+    layer.clearLayers();
+    const style = { color: "#4f8cff", weight: 2, fillOpacity: 0.12, interactive: false };
+    const outline = points.length >= 3 ? L.polygon(points, style) : L.polyline(points, style);
+    layer.addLayer(outline);
+    points.forEach((p, i) => {
+        const marker = L.marker(p, {
+            draggable: true,
+            icon: L.divIcon({ className: "draw-vertex" + (i === 0 ? " first" : ""), iconSize: [16, 16], iconAnchor: [8, 8] }),
+        });
+        marker.on("drag", (e) => {
+            const ll = e.target.getLatLng();
+            points[i] = [ll.lat, ll.lng];
+            outline.setLatLngs(points);
+        });
+        layer.addLayer(marker);
+    });
+    const n = points.length;
+    document.getElementById("draw-hint").textContent =
+        n === 0 ? "Tap the map to start the area" :
+        n < 3 ? `Tap to add points (${n} so far, need 3)` :
+        `${n} points · tap to add, drag to move`;
+    document.getElementById("btn-draw-undo").disabled = n === 0;
+    document.getElementById("btn-draw-done").disabled = n < 3;
+}
+
 function renderGeofencesOnMap() {
     if (geofenceLayer) map.removeLayer(geofenceLayer);
+    const style = { color: "#8b8fa4", weight: 1.5, dashArray: "4 4", fillOpacity: 0.06, interactive: false };
     geofenceLayer = L.layerGroup(geofences.map(g =>
-        L.circle([g.latitude, g.longitude], {
-            radius: g.radius_m, color: "#8b8fa4", weight: 1.5, dashArray: "4 4",
-            fillOpacity: 0.06, interactive: false,
-        }).bindTooltip(g.name, { className: "geofence-label", direction: "center", permanent: false })
+        (g.shape === "polygon"
+            ? L.polygon(g.polygon, style)
+            : L.circle([g.latitude, g.longitude], { ...style, radius: g.radius_m })
+        ).bindTooltip(g.name, { className: "geofence-label", direction: "center", permanent: false })
     )).addTo(map);
 }
 
