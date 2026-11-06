@@ -1,7 +1,12 @@
+import logging
 import os
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiosqlite
+
+log = logging.getLogger(__name__)
 
 DATA_DIR = os.environ.get("DATA_DIR", "/data")
 DB_PATH = os.path.join(DATA_DIR, "airtag.db")
@@ -184,7 +189,49 @@ async def init_db():
                 pass  # Column already exists
         # Backfill original_name for devices that don't have one
         await db.execute("UPDATE devices SET original_name = name WHERE original_name IS NULL")
+        await _fix_local_timestamps(db)
         await db.commit()
+
+
+async def _fix_local_timestamps(db):
+    """One-time fix for location timestamps stored as local wall time with a "Z".
+
+    The poller used to format FindMy.py's local-time timestamps with a literal
+    "Z", so every stored time was the container's TZ (America/Los_Angeles here)
+    mislabelled as UTC: 7-8 hours early. Convert them to real UTC. In the
+    repeated hour when clocks go back, a wall time maps to two instants; pick
+    the latest one that isn't after the row was fetched (fetched_at is true
+    UTC, written by SQLite).
+    """
+    done = await (await db.execute("SELECT value FROM settings WHERE key = 'timestamps_utc'")).fetchone()
+    if done:
+        return
+    try:
+        tz = ZoneInfo(os.environ.get("TZ") or "UTC")
+    except (ZoneInfoNotFoundError, ValueError):
+        tz = ZoneInfo("UTC")
+    rows = await (await db.execute("SELECT id, timestamp, fetched_at FROM locations")).fetchall()
+    slack = timedelta(minutes=5)
+    updates = []
+    for row_id, ts, fetched_at in rows:
+        try:
+            wall = datetime.fromisoformat(ts.replace("Z", "").replace(" ", "T")).replace(tzinfo=None)
+        except ValueError:
+            continue
+        candidates = sorted({wall.replace(tzinfo=tz, fold=f).astimezone(timezone.utc) for f in (0, 1)})
+        chosen = candidates[0]
+        if fetched_at and len(candidates) > 1:
+            fetched = datetime.fromisoformat(fetched_at.replace(" ", "T")).replace(tzinfo=timezone.utc)
+            plausible = [c for c in candidates if c <= fetched + slack]
+            chosen = plausible[-1] if plausible else candidates[0]
+        new = chosen.strftime("%Y-%m-%dT%H:%M:%SZ")
+        if new != ts:
+            updates.append((new, row_id))
+    await db.executemany("UPDATE locations SET timestamp = ? WHERE id = ?", updates)
+    await db.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('timestamps_utc', ?)",
+                     (f"converted from {tz.key} on {datetime.now(timezone.utc):%Y-%m-%d}",))
+    if updates:
+        log.warning("Converted %d location timestamps from %s wall time to UTC", len(updates), tz.key)
 
 
 @asynccontextmanager

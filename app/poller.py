@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+from datetime import timezone
 from pathlib import Path
 
 import aiosqlite
@@ -163,6 +164,12 @@ def set_account(account: AsyncAppleAccount):
     start_polling()
 
 
+def utc_stamp(dt) -> str:
+    """Storage format for a report time. FindMy.py returns local time (the
+    container's TZ), so convert before writing the "Z"."""
+    return dt.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
 def load_accessory(key_file_path: str) -> FindMyAccessory | None:
     """Load a single FindMy accessory from a key file."""
     try:
@@ -245,7 +252,7 @@ async def poll_once() -> dict:
                     """INSERT INTO locations (device_id, latitude, longitude, timestamp, accuracy)
                        VALUES (?, ?, ?, ?, ?)""",
                     (device_id, location.latitude, location.longitude,
-                     location.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     utc_stamp(location.timestamp),
                      getattr(location, "horizontal_accuracy", None)),
                 )
                 await db.commit()
