@@ -20,6 +20,19 @@ fi
 
 CONTAINER_NAME="macos-monterey"
 
+# Fixed Mac identity. GENERATE_UNIQUE=true made a new serial every boot, which
+# signed iCloud out each time. This set is the one iCloud was signed in with on
+# 2026-11-04 -- changing it will force a fresh iCloud sign-in.
+DEVICE_MODEL="iMacPro1,1"
+SERIAL="REDACTED_SERIAL"
+BOARD_SERIAL="REDACTED_BOARD_SERIAL"
+UUID="REDACTED-UUID"
+MAC_ADDRESS="00:00:00:00:00:00"
+
+# Screen resolution (baked into the OpenCore plist at container creation)
+WIDTH=1280
+HEIGHT=800
+
 # If container already exists, just start it
 if docker container inspect "$CONTAINER_NAME" &>/dev/null; then
   echo "Starting existing VM container..."
@@ -32,7 +45,14 @@ else
     -p 50922:10022 \
     -p 5999:5999 \
     -v "$DISK_IMG:/home/arch/OSX-KVM/mac_hdd_ng.img" \
-    -e GENERATE_UNIQUE=true \
+    -e GENERATE_SPECIFIC=true \
+    -e DEVICE_MODEL="$DEVICE_MODEL" \
+    -e SERIAL="$SERIAL" \
+    -e BOARD_SERIAL="$BOARD_SERIAL" \
+    -e UUID="$UUID" \
+    -e MAC_ADDRESS="$MAC_ADDRESS" \
+    -e WIDTH="$WIDTH" \
+    -e HEIGHT="$HEIGHT" \
     -e MASTER_PLIST_URL='https://raw.githubusercontent.com/sickcodes/osx-serial-generator/master/config-custom.plist' \
     -e SHORTNAME=monterey \
     -e "DISPLAY=${DISPLAY:-:0.0}" \
