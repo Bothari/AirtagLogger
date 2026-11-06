@@ -251,7 +251,7 @@ input { font-family: inherit; color: inherit; }
 }
 
 /* ── Settings Page ────────────────────────────────────── */
-#page-settings {
+#page-settings, #page-devices {
     flex-direction: column;
     overflow: hidden;
     align-items: center;
@@ -1459,3 +1459,11 @@ select {
 .access-toggle.open svg { transform: rotate(180deg); }
 .access-list { padding-left: 12px; border-bottom: 1px solid var(--border); }
 .share-list .setting-hint { border-bottom: none; margin: 0; padding: 8px 0; }
+
+/* Date inputs have a wide intrinsic width; let the columns shrink, and stack
+   From/To on phones rather than overflowing the screen. */
+.export-date-group { min-width: 0; }
+.export-date-group input[type="datetime-local"] { min-width: 0; }
+@media (max-width: 480px) {
+    .export-time-custom { flex-direction: column; gap: 10px; }
+}

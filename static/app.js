@@ -66,7 +66,7 @@ function initNav() {
 
     // "Go add" button on map empty state
     document.getElementById("btn-go-add").addEventListener("click", () => {
-        navigateTo("page-settings");
+        navigateTo("page-devices");
         openAddModal();
     });
 }
@@ -113,14 +113,18 @@ function initTimeRange() {
 }
 
 // ── Settings Tabs ────────────────────────────────────────
+// Each page (Devices, Settings) has its own tab bar; switch within that page only.
 function initSettingsTabs() {
-    const tabs = document.querySelectorAll(".tab-btn");
-    tabs.forEach(btn => {
-        btn.addEventListener("click", () => {
-            tabs.forEach(t => t.classList.remove("active"));
-            btn.classList.add("active");
-            document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
-            document.getElementById(btn.dataset.tab).classList.add("active");
+    document.querySelectorAll(".tab-bar").forEach(bar => {
+        const page = bar.closest(".page");
+        const tabs = bar.querySelectorAll(".tab-btn");
+        tabs.forEach(btn => {
+            btn.addEventListener("click", () => {
+                tabs.forEach(t => t.classList.remove("active"));
+                btn.classList.add("active");
+                page.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+                document.getElementById(btn.dataset.tab).classList.add("active");
+            });
         });
     });
 }

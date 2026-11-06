@@ -7,7 +7,7 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-    <link rel="stylesheet" href="/style.css?v=13" />
+    <link rel="stylesheet" href="/style.css?v=14" />
 </head>
 <body>
     <div id="app">
@@ -179,35 +179,14 @@
                     <h1>Settings</h1>
                 </div>
                 <div class="tab-bar">
-                    <button class="tab-btn active" data-tab="tab-devices">Devices</button>
-                    <button class="tab-btn" data-tab="tab-alerts">Alerts</button>
-                    <button class="tab-btn" data-tab="tab-export">Export</button>
+                    <button class="tab-btn active" data-tab="tab-alerts">Alerts</button>
                     <button class="tab-btn" data-tab="tab-account">Account</button>
                     <button class="tab-btn admin-only" data-tab="tab-users">Users</button>
                     <button class="tab-btn admin-only" data-tab="tab-general">General</button>
                 </div>
 
-                <!-- Devices Tab -->
-                <div class="tab-content active" id="tab-devices">
-                    <div id="settings-device-list">
-                        <!-- populated by JS -->
-                    </div>
-                    <div class="empty-state" id="settings-empty" style="display:none;">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
-                            <path d="M16 7V5a4 4 0 00-8 0v2"></path>
-                        </svg>
-                        <p class="admin-only">No devices added.<br>Click + to add your first AirTag.</p>
-                        <p class="user-only">No AirTags have been shared with you yet.<br>Ask an admin to share some.</p>
-                    </div>
-                    <button class="btn-add admin-only" id="btn-add-device">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-                        Add Device
-                    </button>
-                </div>
-
                 <!-- Alerts Tab -->
-                <div class="tab-content" id="tab-alerts">
+                <div class="tab-content active" id="tab-alerts">
                     <div class="section-title">Notifications</div>
                     <div class="setting-row">
                         <span class="setting-label">Pushover</span>
@@ -366,59 +345,6 @@
                     <div class="setting-hint section-hint">People who sign in with SSO get an account automatically, with nothing shared until you share AirTags with them.</div>
                 </div>
 
-                <!-- Export Tab -->
-                <div class="tab-content" id="tab-export">
-                    <div class="export-section">
-                        <div class="export-section-label">Devices</div>
-                        <div class="export-device-list" id="export-device-list">
-                            <!-- populated by JS -->
-                        </div>
-                        <div class="export-select-actions">
-                            <button class="export-select-btn" id="export-select-all">Select all</button>
-                            <button class="export-select-btn" id="export-select-none">Select none</button>
-                        </div>
-                    </div>
-                    <div class="export-section">
-                        <div class="export-section-label">Time Range</div>
-                        <div class="export-time-presets">
-                            <button class="time-btn" data-export-range="24">24h</button>
-                            <button class="time-btn" data-export-range="168">7d</button>
-                            <button class="time-btn active" data-export-range="720">30d</button>
-                            <button class="time-btn" data-export-range="0">All</button>
-                        </div>
-                        <div class="export-time-custom">
-                            <div class="export-date-group">
-                                <label>From</label>
-                                <input type="datetime-local" id="export-from">
-                            </div>
-                            <div class="export-date-group">
-                                <label>To</label>
-                                <input type="datetime-local" id="export-to">
-                            </div>
-                        </div>
-                    </div>
-                    <div class="export-section">
-                        <div class="export-section-label">Format</div>
-                        <div class="export-format-group">
-                            <label class="export-format-option">
-                                <input type="radio" name="export-format" value="gpx" checked>
-                                <div class="export-format-card">
-                                    <strong>GPX</strong>
-                                    <span>Google Earth, Strava, OsmAnd</span>
-                                </div>
-                            </label>
-                            <label class="export-format-option">
-                                <input type="radio" name="export-format" value="csv">
-                                <div class="export-format-card">
-                                    <strong>CSV</strong>
-                                    <span>Spreadsheets, custom tools</span>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-                    <button class="btn-submit export-btn" id="btn-export">Export</button>
-                </div>
-
                 <!-- General Tab -->
                 <div class="tab-content" id="tab-general">
                     <div class="setting-row">
@@ -503,6 +429,92 @@
             </div>
         </div>
 
+        <!-- ── Devices Page ──────────────────────────── -->
+        <div id="page-devices" class="page">
+            <div class="settings-inner">
+                <div class="settings-header">
+                    <h1>Devices</h1>
+                </div>
+                <div class="tab-bar">
+                    <button class="tab-btn active" data-tab="tab-devices">AirTags</button>
+                    <button class="tab-btn" data-tab="tab-export">Export</button>
+                </div>
+
+                <!-- Devices Tab -->
+                <div class="tab-content active" id="tab-devices">
+                    <div id="settings-device-list">
+                        <!-- populated by JS -->
+                    </div>
+                    <div class="empty-state" id="settings-empty" style="display:none;">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
+                            <path d="M16 7V5a4 4 0 00-8 0v2"></path>
+                        </svg>
+                        <p class="admin-only">No devices added.<br>Click + to add your first AirTag.</p>
+                        <p class="user-only">No AirTags have been shared with you yet.<br>Ask an admin to share some.</p>
+                    </div>
+                    <button class="btn-add admin-only" id="btn-add-device">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        Add Device
+                    </button>
+                </div>
+
+                <!-- Export Tab -->
+                <div class="tab-content" id="tab-export">
+                    <div class="export-section">
+                        <div class="export-section-label">Devices</div>
+                        <div class="export-device-list" id="export-device-list">
+                            <!-- populated by JS -->
+                        </div>
+                        <div class="export-select-actions">
+                            <button class="export-select-btn" id="export-select-all">Select all</button>
+                            <button class="export-select-btn" id="export-select-none">Select none</button>
+                        </div>
+                    </div>
+                    <div class="export-section">
+                        <div class="export-section-label">Time Range</div>
+                        <div class="export-time-presets">
+                            <button class="time-btn" data-export-range="24">24h</button>
+                            <button class="time-btn" data-export-range="168">7d</button>
+                            <button class="time-btn active" data-export-range="720">30d</button>
+                            <button class="time-btn" data-export-range="0">All</button>
+                        </div>
+                        <div class="export-time-custom">
+                            <div class="export-date-group">
+                                <label>From</label>
+                                <input type="datetime-local" id="export-from">
+                            </div>
+                            <div class="export-date-group">
+                                <label>To</label>
+                                <input type="datetime-local" id="export-to">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="export-section">
+                        <div class="export-section-label">Format</div>
+                        <div class="export-format-group">
+                            <label class="export-format-option">
+                                <input type="radio" name="export-format" value="gpx" checked>
+                                <div class="export-format-card">
+                                    <strong>GPX</strong>
+                                    <span>Google Earth, Strava, OsmAnd</span>
+                                </div>
+                            </label>
+                            <label class="export-format-option">
+                                <input type="radio" name="export-format" value="csv">
+                                <div class="export-format-card">
+                                    <strong>CSV</strong>
+                                    <span>Spreadsheets, custom tools</span>
+                                </div>
+                            </label>
+                        </div>
+                    </div>
+                    <button class="btn-submit export-btn" id="btn-export">Export</button>
+                </div>
+
+            </div>
+        </div>
+
         <!-- ── Bottom Nav ─────────────────────────────── -->
         <nav id="bottom-nav">
             <button class="nav-item active" data-page="page-map">
@@ -512,6 +524,13 @@
                     <line x1="16" y1="6" x2="16" y2="22"></line>
                 </svg>
                 Map
+            </button>
+            <button class="nav-item" data-page="page-devices">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path>
+                    <circle cx="12" cy="10" r="3"></circle>
+                </svg>
+                Devices
             </button>
             <button class="nav-item" data-page="page-settings">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -578,6 +597,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="/app.js?v=14"></script>
+    <script src="/app.js?v=15"></script>
 </body>
 </html>
