@@ -103,7 +103,15 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     enabled       INTEGER NOT NULL DEFAULT 1,
     last_state    TEXT,
     last_fired_at TIMESTAMP,
-    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    -- Pushover priority: -1 low, 0 normal, 1 high, 2 emergency (repeats until acknowledged)
+    priority      INTEGER NOT NULL DEFAULT 0,
+    -- Optional alert hours: notify only 'inside' or only 'outside' window_start..window_end
+    -- (HH:MM, local time in window_tz). A window ending before it starts runs overnight.
+    window_mode   TEXT,
+    window_start  TEXT,
+    window_end    TEXT,
+    window_tz     TEXT
 );
 
 CREATE TABLE IF NOT EXISTS alert_events (
@@ -112,7 +120,8 @@ CREATE TABLE IF NOT EXISTS alert_events (
     user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     message    TEXT NOT NULL,
     delivered  INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    muted      INTEGER NOT NULL DEFAULT 0  -- happened outside the rule's alert hours: not sent
 );
 CREATE INDEX IF NOT EXISTS idx_alert_events_user ON alert_events(user_id, created_at DESC);
 """
@@ -123,6 +132,12 @@ MIGRATIONS = [
     "ALTER TABLE locations ADD COLUMN accuracy REAL",
     "ALTER TABLE geofences ADD COLUMN shape TEXT NOT NULL DEFAULT 'circle'",
     "ALTER TABLE geofences ADD COLUMN polygon TEXT",
+    "ALTER TABLE alert_rules ADD COLUMN priority INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE alert_rules ADD COLUMN window_mode TEXT",
+    "ALTER TABLE alert_rules ADD COLUMN window_start TEXT",
+    "ALTER TABLE alert_rules ADD COLUMN window_end TEXT",
+    "ALTER TABLE alert_rules ADD COLUMN window_tz TEXT",
+    "ALTER TABLE alert_events ADD COLUMN muted INTEGER NOT NULL DEFAULT 0",
 ]
 
 DROP_UNIQUE_MIGRATION = """

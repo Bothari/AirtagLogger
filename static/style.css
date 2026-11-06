@@ -1568,3 +1568,24 @@ select {
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
     pointer-events: none;
 }
+.badge-urgent { background: var(--danger-dim); color: var(--danger); }
+
+/* Time inputs (alert hours) weren't covered by the form-control styles above */
+.form-group input[type="time"] {
+    width: 100%;
+    min-width: 0;
+    padding: 10px 12px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 0.9rem;
+    outline: none;
+    -webkit-appearance: none;
+    appearance: none;
+    min-height: 2.6em;
+}
+.form-group input[type="time"]:focus { border-color: var(--accent); }
+.form-group input[type="time"]::-webkit-calendar-picker-indicator { filter: invert(0.8); }
+.inline-form .setting-hint { border-bottom: none; margin: -8px 0 14px; padding: 0; }

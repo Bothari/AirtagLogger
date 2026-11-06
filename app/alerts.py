@@ -20,8 +20,9 @@ import json
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, time, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import aiosqlite
 import httpx
@@ -73,9 +74,20 @@ def _parse_ts(ts: str) -> datetime:
 
 # ── Pushover ────────────────────────────────────────────
 
+# Pushover priorities offered per alert. -2 (no notification at all) is left out.
+PRIORITIES = {-1: "low", 0: "normal", 1: "high", 2: "emergency"}
+# Emergency alerts repeat until acknowledged: every EMERGENCY_RETRY seconds,
+# giving up after EMERGENCY_EXPIRE. Pushover's limits are retry >= 30, expire <= 10800.
+EMERGENCY_RETRY = 60
+EMERGENCY_EXPIRE = 3600
+
+
 async def send_pushover(app_token: str, user_key: str, title: str, message: str,
-                        url: str | None = None) -> tuple[bool, str]:
-    data = {"token": app_token, "user": user_key, "title": title, "message": message}
+                        url: str | None = None, priority: int = 0) -> tuple[bool, str]:
+    data = {"token": app_token, "user": user_key, "title": title, "message": message, "priority": priority}
+    if priority == 2:
+        data["retry"] = EMERGENCY_RETRY
+        data["expire"] = EMERGENCY_EXPIRE
     if url:
         data["url"] = url
         data["url_title"] = "Open in Maps"
@@ -89,20 +101,56 @@ async def send_pushover(app_token: str, user_key: str, title: str, message: str,
         return False, f"Pushover unreachable: {e}"
 
 
-async def _notify(db, rule, user_row, title: str, message: str, url: str | None):
+# ── Alert hours ─────────────────────────────────────────
+
+WINDOW_MODES = ("inside", "outside")
+
+
+def _parse_hhmm(value: str) -> time:
+    try:
+        return time.fromisoformat(value)
+    except (TypeError, ValueError):
+        raise HTTPException(400, "Times must be HH:MM")
+
+
+def in_window(now: datetime, start: str, end: str, tz: str) -> bool:
+    """Is `now` within [start, end) local time? A window whose end is before its
+    start runs overnight (22:00-07:00)."""
+    local = now.astimezone(ZoneInfo(tz)).time().replace(tzinfo=None)
+    s, e = time.fromisoformat(start), time.fromisoformat(end)
+    if s <= e:
+        return s <= local < e
+    return local >= s or local < e
+
+
+def window_allows(rule, now: datetime) -> bool:
+    """Whether a rule may notify right now, given its optional alert hours."""
+    if not rule["window_mode"]:
+        return True
+    inside = in_window(now, rule["window_start"], rule["window_end"], rule["window_tz"])
+    return inside if rule["window_mode"] == "inside" else not inside
+
+
+async def _notify(db, rule, user_row, title: str, message: str, url: str | None, now: datetime):
+    """Send (or, outside the rule's alert hours, just record) an alert. The rule's
+    state is updated by the caller either way, so a change during muted hours is
+    not reported later."""
     import json
-    app_token = await get_setting(db, "pushover_app_token", "")
-    user_key = json.loads(user_row["prefs"] or "{}").get("pushover_user_key", "")
+    muted = not window_allows(rule, now)
     delivered = False
-    if app_token and user_key:
-        delivered, info = await send_pushover(app_token, user_key, title, message, url)
-        if not delivered:
-            log.warning("Alert for %s not delivered: %s", user_row["username"], info)
+    if not muted:
+        app_token = await get_setting(db, "pushover_app_token", "")
+        user_key = json.loads(user_row["prefs"] or "{}").get("pushover_user_key", "")
+        if app_token and user_key:
+            delivered, info = await send_pushover(app_token, user_key, title, message, url,
+                                                  priority=rule["priority"] or 0)
+            if not delivered:
+                log.warning("Alert for %s not delivered: %s", user_row["username"], info)
     await db.execute(
-        "INSERT INTO alert_events (rule_id, user_id, message, delivered) VALUES (?, ?, ?, ?)",
-        (rule["id"], user_row["id"], f"{title}: {message}", 1 if delivered else 0),
+        "INSERT INTO alert_events (rule_id, user_id, message, delivered, muted) VALUES (?, ?, ?, ?, ?)",
+        (rule["id"], user_row["id"], f"{title}: {message}", 1 if delivered else 0, 1 if muted else 0),
     )
-    log.info("Alert for %s: %s: %s (delivered=%s)", user_row["username"], title, message, delivered)
+    log.info("Alert for %s: %s: %s (delivered=%s, muted=%s)", user_row["username"], title, message, delivered, muted)
 
 
 # ── Evaluation (called by the poller) ───────────────────
@@ -151,10 +199,12 @@ async def _evaluate_rule(db, rule, user, loc, now: datetime):
         await db.execute("UPDATE alert_rules SET last_state = ? WHERE id = ?", (state, rule["id"]))
         if state == "stale":
             await _notify(db, rule, user, f"{rule['device_name']} has gone quiet",
-                          f"No new location for {age_h:.0f}h (threshold {rule['stale_hours']:g}h).", maps_url)
+                          f"No new location for {age_h:.0f}h (threshold {rule['stale_hours']:g}h).", maps_url, now)
         elif rule["last_state"] == "stale":
             await _notify(db, rule, user, f"{rule['device_name']} is reporting again",
-                          "A fresh location came in.", maps_url)
+                          "A fresh location came in.", maps_url, now)
+        else:
+            return  # first observation, and it's fresh: just the baseline
         await db.execute("UPDATE alert_rules SET last_fired_at = CURRENT_TIMESTAMP WHERE id = ?", (rule["id"],))
         return
 
@@ -181,7 +231,7 @@ async def _evaluate_rule(db, rule, user, loc, now: datetime):
     entered = state == "in"
     if rule["kind"] == "both" or (rule["kind"] == "enter") == entered:
         verb = "arrived at" if entered else "left"
-        await _notify(db, rule, user, f"{rule['device_name']} {verb} {rule['geofence_name']}", detail, maps_url)
+        await _notify(db, rule, user, f"{rule['device_name']} {verb} {rule['geofence_name']}", detail, maps_url, now)
         await db.execute("UPDATE alert_rules SET last_fired_at = CURRENT_TIMESTAMP WHERE id = ?", (rule["id"],))
 
 
@@ -303,6 +353,12 @@ class RuleBody(BaseModel):
     geofence_id: Optional[str] = None
     stale_hours: Optional[float] = None
     enabled: bool = True
+    priority: int = 0
+    # Optional alert hours: notify only inside (or only outside) start-end, local time in tz.
+    window_mode: Optional[str] = None
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    window_tz: Optional[str] = None
 
 
 async def _check_rule(db, user, body: RuleBody):
@@ -318,11 +374,27 @@ async def _check_rule(db, user, body: RuleBody):
         body.geofence_id = None
     else:
         raise HTTPException(400, "kind must be enter, exit, both or stale")
+    if body.priority not in PRIORITIES:
+        raise HTTPException(400, "priority must be -1 (low), 0 (normal), 1 (high) or 2 (emergency)")
+    if body.window_mode:
+        if body.window_mode not in WINDOW_MODES:
+            raise HTTPException(400, "window_mode must be inside or outside")
+        start, end = _parse_hhmm(body.window_start), _parse_hhmm(body.window_end)
+        if start == end:
+            raise HTTPException(400, "Start and end times must differ")
+        try:
+            ZoneInfo(body.window_tz or "")
+        except (ZoneInfoNotFoundError, ValueError):
+            raise HTTPException(400, f"Unknown time zone {body.window_tz!r}")
+        body.window_start, body.window_end = start.strftime("%H:%M"), end.strftime("%H:%M")
+    else:
+        body.window_mode = body.window_start = body.window_end = body.window_tz = None
 
 
 RULE_VIEW = """
     SELECT r.id, r.device_id, r.geofence_id, r.kind, r.stale_hours, r.enabled, r.last_state,
-           r.last_fired_at, g.name AS geofence_name
+           r.last_fired_at, r.priority, r.window_mode, r.window_start, r.window_end, r.window_tz,
+           g.name AS geofence_name
     FROM alert_rules r LEFT JOIN geofences g ON g.id = r.geofence_id
     WHERE r.user_id = ?
 """
@@ -339,9 +411,11 @@ async def create_rule(body: RuleBody, user=Depends(require_user), db: aiosqlite.
     await _check_rule(db, user, body)
     rid = str(uuid.uuid4())
     await db.execute(
-        """INSERT INTO alert_rules (id, user_id, device_id, geofence_id, kind, stale_hours, enabled)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (rid, user["id"], body.device_id, body.geofence_id, body.kind, body.stale_hours, 1 if body.enabled else 0),
+        """INSERT INTO alert_rules (id, user_id, device_id, geofence_id, kind, stale_hours, enabled,
+                                   priority, window_mode, window_start, window_end, window_tz)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (rid, user["id"], body.device_id, body.geofence_id, body.kind, body.stale_hours, 1 if body.enabled else 0,
+         body.priority, body.window_mode, body.window_start, body.window_end, body.window_tz),
     )
     await db.commit()
     row = await (await db.execute(RULE_VIEW + " AND r.id = ?", (user["id"], rid))).fetchone()
@@ -356,14 +430,16 @@ async def update_rule(rule_id: str, body: RuleBody, user=Depends(require_user), 
     if not existing:
         raise HTTPException(404, "Alert not found")
     await _check_rule(db, user, body)
-    # Changing what the rule watches resets its baseline.
+    # Changing what the rule watches resets its baseline; hours/priority don't.
     changed = (existing["device_id"], existing["geofence_id"], existing["kind"], existing["stale_hours"]) != \
               (body.device_id, body.geofence_id, body.kind, body.stale_hours)
     await db.execute(
         """UPDATE alert_rules SET device_id = ?, geofence_id = ?, kind = ?, stale_hours = ?, enabled = ?,
+               priority = ?, window_mode = ?, window_start = ?, window_end = ?, window_tz = ?,
                last_state = CASE WHEN ? THEN NULL ELSE last_state END
            WHERE id = ?""",
         (body.device_id, body.geofence_id, body.kind, body.stale_hours, 1 if body.enabled else 0,
+         body.priority, body.window_mode, body.window_start, body.window_end, body.window_tz,
          1 if changed else 0, rule_id),
     )
     await db.commit()
@@ -383,7 +459,7 @@ async def delete_rule(rule_id: str, user=Depends(require_user), db: aiosqlite.Co
 @router.get("/alerts/events")
 async def list_events(user=Depends(require_user), db: aiosqlite.Connection = Depends(get_db)):
     rows = await (await db.execute(
-        "SELECT id, rule_id, message, delivered, created_at FROM alert_events"
+        "SELECT id, rule_id, message, delivered, muted, created_at FROM alert_events"
         " WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 50", (user["id"],)
     )).fetchall()
     return [dict(r) for r in rows]

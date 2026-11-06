@@ -506,8 +506,10 @@ async function loadDevices() {
     updateConfigSummary();
     updateEmptyStates();
     refreshMap();
-    // User cards list every AirTag, so they can only be drawn once devices are in.
+    // User cards and alert rows show AirTag names, so redraw them once devices
+    // are in (alerts may have loaded first and rendered as "Unknown").
     loadUsers();
+    renderRuleList(rules);
 }
 
 function updateEmptyStates() {
@@ -1423,20 +1425,21 @@ function initAlertsTab() {
         document.getElementById("rule-geofence-group").hidden = stale;
         document.getElementById("rule-stale-group").hidden = !stale;
     });
+    document.getElementById("rule-window-mode").addEventListener("change", updateRuleWindowFields);
     document.getElementById("btn-add-rule").addEventListener("click", () => {
         if (!devices.length) { toast("No AirTags to watch yet", "info"); return; }
-        rForm.hidden = false;
-        document.getElementById("btn-add-rule").hidden = true;
+        openRuleForm();
     });
-    document.getElementById("btn-rule-cancel").addEventListener("click", () => {
-        rForm.hidden = true;
-        document.getElementById("btn-add-rule").hidden = false;
-    });
+    document.getElementById("btn-rule-cancel").addEventListener("click", closeRuleForm);
     rForm.addEventListener("submit", async (e) => {
         e.preventDefault();
+        const id = document.getElementById("rule-id").value;
+        const existing = id ? rules.find(r => r.id === id) : null;
         const body = {
             device_id: document.getElementById("rule-device").value,
             kind: kind.value,
+            enabled: existing ? !!existing.enabled : true,
+            priority: parseInt(document.getElementById("rule-priority").value, 10),
         };
         if (kind.value === "stale") {
             body.stale_hours = parseFloat(document.getElementById("rule-stale").value);
@@ -1444,16 +1447,61 @@ function initAlertsTab() {
             body.geofence_id = document.getElementById("rule-geofence").value;
             if (!body.geofence_id) { toast("Add a place first", "error"); return; }
         }
+        const mode = document.getElementById("rule-window-mode").value;
+        if (mode) {
+            body.window_mode = mode;
+            body.window_start = document.getElementById("rule-window-start").value;
+            body.window_end = document.getElementById("rule-window-end").value;
+            // Keep an edited rule's zone unless it never had one.
+            body.window_tz = (existing && existing.window_tz) || browserTimeZone();
+        }
         try {
-            await api("POST", "/api/alerts", body);
-            rForm.hidden = true;
-            document.getElementById("btn-add-rule").hidden = false;
-            toast("Alert added", "success");
+            await api(id ? "PUT" : "POST", id ? `/api/alerts/${id}` : "/api/alerts", body);
+            closeRuleForm();
+            toast(id ? "Alert updated" : "Alert added", "success");
             await loadAlerts();
         } catch (err) {
             toast(err.message, "error");
         }
     });
+}
+
+function browserTimeZone() {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+}
+
+function updateRuleWindowFields() {
+    const on = !!document.getElementById("rule-window-mode").value;
+    document.querySelectorAll(".rule-window-times").forEach(el => { el.hidden = !on; });
+    document.querySelector(".rule-window-hint").hidden = !on;
+}
+
+// Open the alert form, empty for a new alert or filled in to edit `r`.
+function openRuleForm(r = null) {
+    const form = document.getElementById("rule-form");
+    document.getElementById("rule-id").value = r ? r.id : "";
+    if (r) {
+        document.getElementById("rule-device").value = r.device_id;
+        document.getElementById("rule-kind").value = r.kind;
+        if (r.geofence_id) document.getElementById("rule-geofence").value = r.geofence_id;
+        if (r.stale_hours) document.getElementById("rule-stale").value = r.stale_hours;
+    }
+    document.getElementById("rule-kind").dispatchEvent(new Event("change"));
+    document.getElementById("rule-priority").value = String(r ? r.priority : 0);
+    document.getElementById("rule-window-mode").value = r && r.window_mode ? r.window_mode : "";
+    document.getElementById("rule-window-start").value = r && r.window_start ? r.window_start : "09:00";
+    document.getElementById("rule-window-end").value = r && r.window_end ? r.window_end : "17:00";
+    document.getElementById("rule-tz").textContent = (r && r.window_tz) || browserTimeZone();
+    updateRuleWindowFields();
+    document.getElementById("btn-rule-submit").textContent = r ? "Save" : "Add Alert";
+    form.hidden = false;
+    document.getElementById("btn-add-rule").hidden = true;
+    if (r) form.scrollIntoView({ behavior: "smooth", block: "nearest" });
+}
+
+function closeRuleForm() {
+    document.getElementById("rule-form").hidden = true;
+    document.getElementById("btn-add-rule").hidden = false;
 }
 
 function renderRuleDeviceOptions() {
@@ -1463,8 +1511,10 @@ function renderRuleDeviceOptions() {
     if (current) sel.value = current;
 }
 
+let rules = [];  // this user's alert rules, as last loaded
+
 async function loadAlerts() {
-    let rules = [], events = [];
+    let events = [];
     try {
         [geofences, rules, events] = await Promise.all([
             fetchJSON("/api/geofences"), fetchJSON("/api/alerts"), fetchJSON("/api/alerts/events"),
@@ -1529,21 +1579,26 @@ function renderRuleList(rules) {
             : `${KIND_LABELS[r.kind]} ${esc(r.geofence_name)}`;
         const state = r.last_state === "in" ? "inside now" : r.last_state === "out" ? "outside now"
                     : r.last_state === "stale" ? "quiet now" : r.last_state === "fresh" ? "reporting" : "waiting for a fix";
+        const extras = [
+            r.priority !== 0 ? `<span class="badge${r.priority === 2 ? " badge-urgent" : ""}">${PRIORITY_LABELS[r.priority]}</span>` : "",
+            r.window_mode ? `${r.window_mode === "inside" ? "only" : "not"} ${r.window_start}–${r.window_end}` : "",
+        ].filter(Boolean).join(" · ");
         const row = document.createElement("div");
         row.className = "item-row" + (r.enabled ? "" : " muted");
         row.innerHTML = `<div class="item-main"><div class="item-title">${esc(names[r.device_id] || "Unknown")} ${what}</div>
-            <div class="item-meta">${state}${r.last_fired_at ? ` · last alert ${timeAgo(r.last_fired_at)}` : ""}</div></div>
+            <div class="item-meta">${state}${r.last_fired_at ? ` · last alert ${timeAgo(r.last_fired_at)}` : ""}${extras ? " · " + extras : ""}</div></div>
             <label class="toggle"><input type="checkbox" ${r.enabled ? "checked" : ""}><span class="toggle-track"></span></label>
+            <button class="btn-small btn-edit">Edit</button>
             <button class="btn-small btn-danger btn-del">Delete</button>`;
         row.querySelector("input").addEventListener("change", async (e) => {
             try {
-                await api("PUT", `/api/alerts/${r.id}`, {
-                    device_id: r.device_id, kind: r.kind, geofence_id: r.geofence_id,
-                    stale_hours: r.stale_hours, enabled: e.target.checked,
-                });
+                // Send the whole rule: fields left out would reset to their defaults.
+                await api("PUT", `/api/alerts/${r.id}`, { ...ruleBody(r), enabled: e.target.checked });
+                r.enabled = e.target.checked ? 1 : 0;
                 row.classList.toggle("muted", !e.target.checked);
             } catch (err) { toast(err.message, "error"); }
         });
+        row.querySelector(".btn-edit").addEventListener("click", () => openRuleForm(r));
         row.querySelector(".btn-del").addEventListener("click", () => confirmInline(row, "Delete this alert?"));
         row.querySelector(".btn-del").addEventListener("confirm", async () => {
             try {
@@ -1555,6 +1610,14 @@ function renderRuleList(rules) {
     });
 }
 
+const PRIORITY_LABELS = { "-1": "Low", 0: "Normal", 1: "High", 2: "Emergency" };
+
+function ruleBody(r) {
+    const { device_id, kind, geofence_id, stale_hours, priority, window_mode, window_start, window_end, window_tz } = r;
+    return { device_id, kind, geofence_id, stale_hours, priority, window_mode, window_start, window_end, window_tz,
+             enabled: !!r.enabled };
+}
+
 function renderEventList(events) {
     const list = document.getElementById("event-list");
     if (!events.length) {
@@ -1563,7 +1626,8 @@ function renderEventList(events) {
     }
     list.innerHTML = events.map(e => `<div class="item-row"><div class="item-main">
         <div class="item-title">${esc(e.message)}</div>
-        <div class="item-meta" title="${esc(formatExact(e.created_at))}">${timeAgo(e.created_at)}${e.delivered ? "" : " · not delivered (no Pushover key)"}</div>
+        <div class="item-meta" title="${esc(formatExact(e.created_at))}">${timeAgo(e.created_at)}${
+            e.muted ? " · muted (outside alert hours)" : e.delivered ? "" : " · not delivered (no Pushover key)"}</div>
         </div></div>`).join("");
 }
 
