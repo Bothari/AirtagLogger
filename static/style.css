@@ -1549,3 +1549,22 @@ select {
 @media (max-width: 768px) {
     #pick-banner, #draw-banner { top: auto; bottom: 56px; }
 }
+
+/* Place name badges, centred just above the badge point */
+.geofence-badge-anchor { width: 0; height: 0; }
+.geofence-badge {
+    position: absolute;
+    left: 0;
+    bottom: 4px;
+    transform: translateX(-50%);
+    white-space: nowrap;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e2725b;
+    color: #fff;
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+    pointer-events: none;
+}

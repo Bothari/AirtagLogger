@@ -1685,15 +1685,37 @@ function renderDrawing() {
     document.getElementById("btn-draw-done").disabled = n < 3;
 }
 
+const GEOFENCE_COLOR = "#e2725b";  // terracotta, the same for every place
+
+// Where a place's name badge sits: the top of a circle, or the northernmost
+// vertex of an area (an area's centre can fall outside a concave shape).
+function geofenceBadgePoint(g) {
+    if (g.shape === "polygon") return g.polygon.reduce((top, p) => (p[0] > top[0] ? p : top));
+    return [g.latitude + g.radius_m / 111320, g.longitude];
+}
+
 function renderGeofencesOnMap() {
     if (geofenceLayer) map.removeLayer(geofenceLayer);
-    const style = { color: "#8b8fa4", weight: 1.5, dashArray: "4 4", fillOpacity: 0.06, interactive: false };
-    geofenceLayer = L.layerGroup(geofences.map(g =>
-        (g.shape === "polygon"
+    if (!map.getPane("geofenceBadges")) {
+        // Above shapes and trails, below AirTag markers so a badge never hides a tag.
+        map.createPane("geofenceBadges").style.zIndex = 550;
+    }
+    const style = { color: GEOFENCE_COLOR, weight: 2, opacity: 0.9, dashArray: "6 4",
+                    fillColor: GEOFENCE_COLOR, fillOpacity: 0.08, interactive: false };
+    const layers = [];
+    geofences.forEach(g => {
+        layers.push(g.shape === "polygon"
             ? L.polygon(g.polygon, style)
-            : L.circle([g.latitude, g.longitude], { ...style, radius: g.radius_m })
-        ).bindTooltip(g.name, { className: "geofence-label", direction: "center", permanent: false })
-    )).addTo(map);
+            : L.circle([g.latitude, g.longitude], { ...style, radius: g.radius_m }));
+        layers.push(L.marker(geofenceBadgePoint(g), {
+            pane: "geofenceBadges",
+            interactive: false,
+            keyboard: false,
+            icon: L.divIcon({ className: "geofence-badge-anchor", html: `<span class="geofence-badge">${esc(g.name)}</span>`,
+                              iconSize: null, iconAnchor: [0, 0] }),
+        }));
+    });
+    geofenceLayer = L.layerGroup(layers).addTo(map);
 }
 
 // ── Users tab (admin) ────────────────────────────────────
