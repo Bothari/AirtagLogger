@@ -7,10 +7,75 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
     <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-    <link rel="stylesheet" href="/style.css?v=11" />
+    <link rel="stylesheet" href="/style.css?v=13" />
 </head>
 <body>
     <div id="app">
+
+        <!-- ── Login Page (app accounts) ──────────────── -->
+        <div id="page-login" class="page">
+            <div class="setup-container">
+                <div class="setup-logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"></path>
+                        <circle cx="12" cy="10" r="3"></circle>
+                    </svg>
+                    <h1>AirTag Logger</h1>
+                    <p id="login-subtitle">Sign in to continue</p>
+                </div>
+
+                <div id="login-notice" class="setup-error" hidden></div>
+
+                <!-- Sign in -->
+                <form id="login-form" class="setup-step" hidden>
+                    <button type="button" class="btn-sso setup-btn" id="btn-sso" hidden>Sign in with SSO</button>
+                    <div class="login-divider" id="login-divider" hidden><span>or</span></div>
+                    <div class="form-group">
+                        <label for="login-username">Username</label>
+                        <input type="text" id="login-username" autocomplete="username" autocapitalize="off" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="login-password">Password</label>
+                        <input type="password" id="login-password" autocomplete="current-password" required>
+                    </div>
+                    <button type="submit" class="btn-submit setup-btn">Sign In</button>
+                </form>
+
+                <!-- First run: create the admin -->
+                <form id="setup-form" class="setup-step" hidden>
+                    <p class="setup-hint">Create the admin account. The one-time setup token is printed in the container log:
+                        <code>docker logs airtag-logger</code></p>
+                    <div class="form-group">
+                        <label for="setup-token">Setup token</label>
+                        <input type="text" id="setup-token" autocomplete="off" autocapitalize="off" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="setup-username">Admin username</label>
+                        <input type="text" id="setup-username" autocomplete="username" autocapitalize="off" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="setup-password">Password (8+ characters)</label>
+                        <input type="password" id="setup-password" autocomplete="new-password" minlength="8" required>
+                    </div>
+                    <button type="submit" class="btn-submit setup-btn">Create Admin</button>
+                </form>
+
+                <!-- Forced password change -->
+                <form id="pwchange-form" class="setup-step" hidden>
+                    <p class="setup-hint">Choose a new password to finish signing in.</p>
+                    <div class="form-group">
+                        <label for="pwchange-current">Temporary password</label>
+                        <input type="password" id="pwchange-current" autocomplete="current-password" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="pwchange-new">New password (8+ characters)</label>
+                        <input type="password" id="pwchange-new" autocomplete="new-password" minlength="8" required>
+                    </div>
+                    <button type="submit" class="btn-submit setup-btn">Set Password</button>
+                    <button type="button" class="btn-cancel setup-btn btn-logout">Sign out</button>
+                </form>
+            </div>
+        </div>
 
         <!-- ── Setup Page (Apple ID auth) ────────────── -->
         <div id="page-setup" class="page">
@@ -21,11 +86,15 @@
                         <circle cx="12" cy="10" r="3"></circle>
                     </svg>
                     <h1>AirTag Logger</h1>
-                    <p>Sign in with your Apple ID to start tracking</p>
+                    <p>Connect the Apple ID that owns the AirTags. Every user's map is fed from this one account.</p>
+                </div>
+                <div id="setup-not-admin" class="setup-step" hidden>
+                    <p class="setup-hint">An admin hasn't connected the Apple account yet. Check back later.</p>
+                    <button class="btn-cancel setup-btn btn-logout">Sign out</button>
                 </div>
 
                 <!-- Step 1: Login -->
-                <div id="setup-login" class="setup-step">
+                <div id="setup-login" class="setup-step admin-only">
                     <div class="form-group">
                         <label for="apple-email">Apple ID</label>
                         <input type="email" id="apple-email" placeholder="email@example.com" autocomplete="email">
@@ -80,6 +149,10 @@
                 </div>
             </div>
             <div id="map"></div>
+            <div id="pick-banner" hidden>
+                <span>Tap the map to place the geofence</span>
+                <button class="btn-small" id="btn-pick-cancel">Cancel</button>
+            </div>
             <!-- Timeline scrubber -->
             <div id="scrubber-bar" style="display:none;">
                 <input type="range" id="scrubber-slider" min="0" max="100" value="100" step="1">
@@ -92,7 +165,7 @@
                     <circle cx="12" cy="10" r="3"></circle>
                 </svg>
                 <p>No devices yet</p>
-                <button class="btn-add" id="btn-go-add">
+                <button class="btn-add admin-only" id="btn-go-add">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     Add Device
                 </button>
@@ -107,8 +180,11 @@
                 </div>
                 <div class="tab-bar">
                     <button class="tab-btn active" data-tab="tab-devices">Devices</button>
-                    <button class="tab-btn" data-tab="tab-general">General</button>
+                    <button class="tab-btn" data-tab="tab-alerts">Alerts</button>
                     <button class="tab-btn" data-tab="tab-export">Export</button>
+                    <button class="tab-btn" data-tab="tab-account">Account</button>
+                    <button class="tab-btn admin-only" data-tab="tab-users">Users</button>
+                    <button class="tab-btn admin-only" data-tab="tab-general">General</button>
                 </div>
 
                 <!-- Devices Tab -->
@@ -121,12 +197,173 @@
                             <rect x="2" y="7" width="20" height="14" rx="2" ry="2"></rect>
                             <path d="M16 7V5a4 4 0 00-8 0v2"></path>
                         </svg>
-                        <p>No devices added.<br>Click + to add your first AirTag.</p>
+                        <p class="admin-only">No devices added.<br>Click + to add your first AirTag.</p>
+                        <p class="user-only">No AirTags have been shared with you yet.<br>Ask an admin to share some.</p>
                     </div>
-                    <button class="btn-add" id="btn-add-device">
+                    <button class="btn-add admin-only" id="btn-add-device">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                         Add Device
                     </button>
+                </div>
+
+                <!-- Alerts Tab -->
+                <div class="tab-content" id="tab-alerts">
+                    <div class="section-title">Notifications</div>
+                    <div class="setting-row">
+                        <span class="setting-label">Pushover</span>
+                        <span class="setting-value" id="pushover-status"></span>
+                        <button class="btn-small" id="btn-test-push">Test</button>
+                    </div>
+                    <div class="setting-hint" id="pushover-hint"></div>
+
+                    <div class="section-title">Places</div>
+                    <div id="geofence-list" class="item-list"></div>
+                    <form id="geofence-form" class="inline-form" hidden>
+                        <input type="hidden" id="geofence-id">
+                        <div class="form-group">
+                            <label for="geofence-name">Name</label>
+                            <input type="text" id="geofence-name" placeholder="e.g. Home" required>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="geofence-lat">Latitude</label>
+                                <input type="number" id="geofence-lat" step="any" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="geofence-lon">Longitude</label>
+                                <input type="number" id="geofence-lon" step="any" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="geofence-radius">Radius (m)</label>
+                                <input type="number" id="geofence-radius" min="25" max="50000" value="150" required>
+                            </div>
+                        </div>
+                        <div class="inline-form-actions">
+                            <button type="button" class="btn-small" id="btn-geofence-pick">Pick on map</button>
+                            <span class="spacer"></span>
+                            <button type="button" class="btn-cancel" id="btn-geofence-cancel">Cancel</button>
+                            <button type="submit" class="btn-submit">Save</button>
+                        </div>
+                    </form>
+                    <button class="btn-add" id="btn-add-geofence">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        Add Place
+                    </button>
+
+                    <div class="section-title">Alerts</div>
+                    <div id="rule-list" class="item-list"></div>
+                    <form id="rule-form" class="inline-form" hidden>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="rule-device">AirTag</label>
+                                <select id="rule-device" required></select>
+                            </div>
+                            <div class="form-group">
+                                <label for="rule-kind">When it</label>
+                                <select id="rule-kind">
+                                    <option value="enter">arrives at</option>
+                                    <option value="exit">leaves</option>
+                                    <option value="both">arrives at or leaves</option>
+                                    <option value="stale">stops reporting for</option>
+                                </select>
+                            </div>
+                            <div class="form-group" id="rule-geofence-group">
+                                <label for="rule-geofence">Place</label>
+                                <select id="rule-geofence"></select>
+                            </div>
+                            <div class="form-group" id="rule-stale-group" hidden>
+                                <label for="rule-stale">Hours</label>
+                                <input type="number" id="rule-stale" min="0.5" max="720" step="0.5" value="12">
+                            </div>
+                        </div>
+                        <div class="inline-form-actions">
+                            <span class="spacer"></span>
+                            <button type="button" class="btn-cancel" id="btn-rule-cancel">Cancel</button>
+                            <button type="submit" class="btn-submit">Add Alert</button>
+                        </div>
+                    </form>
+                    <button class="btn-add" id="btn-add-rule">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        Add Alert
+                    </button>
+
+                    <div class="section-title">Recent alerts</div>
+                    <div id="event-list" class="item-list"></div>
+                </div>
+
+                <!-- Account Tab -->
+                <div class="tab-content" id="tab-account">
+                    <div class="setting-row">
+                        <span class="setting-label">Signed in as</span>
+                        <span class="setting-value" id="account-name"></span>
+                    </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Default map range</span>
+                        <select id="pref-range">
+                            <option value="1">1 hour</option>
+                            <option value="24">24 hours</option>
+                            <option value="168">7 days</option>
+                            <option value="720">30 days</option>
+                            <option value="0">All</option>
+                        </select>
+                    </div>
+                    <div class="setting-row" id="sso-row" hidden>
+                        <span class="setting-label">Single sign-on</span>
+                        <span class="setting-value" id="sso-status"></span>
+                        <button class="btn-small" id="btn-sso-link">Link</button>
+                    </div>
+
+                    <div class="section-title" id="pw-title">Change password</div>
+                    <form id="account-pw-form" class="inline-form">
+                        <div class="form-group" id="account-pw-current-group">
+                            <label for="account-pw-current">Current password</label>
+                            <input type="password" id="account-pw-current" autocomplete="current-password">
+                        </div>
+                        <div class="form-group">
+                            <label for="account-pw-new">New password (8+ characters)</label>
+                            <input type="password" id="account-pw-new" autocomplete="new-password" minlength="8" required>
+                        </div>
+                        <div class="inline-form-actions">
+                            <span class="spacer"></span>
+                            <button type="submit" class="btn-submit">Update Password</button>
+                        </div>
+                    </form>
+
+                    <button class="btn-cancel btn-logout account-logout">Sign out</button>
+                </div>
+
+                <!-- Users Tab (admin) -->
+                <div class="tab-content" id="tab-users">
+                    <div id="user-list"></div>
+                    <form id="user-form" class="inline-form" hidden>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="new-username">Username</label>
+                                <input type="text" id="new-username" autocomplete="off" autocapitalize="off" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="new-role">Role</label>
+                                <select id="new-role">
+                                    <option value="user">User</option>
+                                    <option value="admin">Admin</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label for="new-password">Temporary password (they'll change it on first sign-in)</label>
+                            <input type="text" id="new-password" autocomplete="off" minlength="8" required>
+                        </div>
+                        <div class="inline-form-actions">
+                            <span class="spacer"></span>
+                            <button type="button" class="btn-cancel" id="btn-user-cancel">Cancel</button>
+                            <button type="submit" class="btn-submit">Create User</button>
+                        </div>
+                    </form>
+                    <button class="btn-add" id="btn-add-user">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                        Add User
+                    </button>
+                    <div class="setting-hint section-hint">People who sign in with SSO get an account automatically, with nothing shared until you share AirTags with them.</div>
                 </div>
 
                 <!-- Export Tab -->
@@ -199,6 +436,69 @@
                         <span class="setting-label">Manual poll</span>
                         <button class="btn-submit" id="btn-poll-now" style="padding:8px 18px;font-size:0.82rem;">Poll Now</button>
                     </div>
+                    <div class="setting-row">
+                        <span class="setting-label">Apple account</span>
+                        <span class="setting-value" id="apple-account"></span>
+                    </div>
+
+                    <div class="section-title">Pushover</div>
+                    <div class="setting-row">
+                        <span class="setting-label">App API token</span>
+                        <input type="password" id="pushover-app-token" class="text-input" autocomplete="off" placeholder="unchanged">
+                        <button class="btn-small" id="btn-save-pushover">Save</button>
+                    </div>
+                    <div class="setting-hint">Shared by everyone's alerts. Each user adds their own user key under Alerts.</div>
+
+                    <div class="section-title">Single sign-on (OIDC)</div>
+                    <form id="sso-form" class="inline-form">
+                        <div class="setting-row">
+                            <span class="setting-label">Enabled</span>
+                            <label class="toggle">
+                                <input type="checkbox" id="sso-enabled">
+                                <span class="toggle-track"></span>
+                            </label>
+                        </div>
+                        <div class="form-group">
+                            <label for="sso-public-url">Public URL of this app</label>
+                            <input type="text" id="sso-public-url" placeholder="https://airtag.example.com">
+                        </div>
+                        <div class="form-group">
+                            <label for="sso-provider">Provider (issuer) URL</label>
+                            <input type="text" id="sso-provider" placeholder="https://sso.example.com/application/o/airtag/">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="sso-client-id">Client ID</label>
+                                <input type="text" id="sso-client-id" autocomplete="off">
+                            </div>
+                            <div class="form-group">
+                                <label for="sso-client-secret">Client secret</label>
+                                <input type="password" id="sso-client-secret" autocomplete="off" placeholder="unchanged">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="sso-label">Button label</label>
+                                <input type="text" id="sso-label" placeholder="Sign in with SSO">
+                            </div>
+                            <div class="form-group">
+                                <label for="sso-scopes">Scopes</label>
+                                <input type="text" id="sso-scopes" placeholder="openid email profile">
+                            </div>
+                        </div>
+                        <div class="setting-row">
+                            <span class="setting-label">Create accounts for new SSO users</span>
+                            <label class="toggle">
+                                <input type="checkbox" id="sso-auto-provision" checked>
+                                <span class="toggle-track"></span>
+                            </label>
+                        </div>
+                        <div class="setting-hint" id="sso-redirect-hint"></div>
+                        <div class="inline-form-actions">
+                            <span class="spacer"></span>
+                            <button type="submit" class="btn-submit">Save SSO Settings</button>
+                        </div>
+                    </form>
                 </div>
             </div>
         </div>
@@ -278,6 +578,6 @@
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-    <script src="/app.js?v=11"></script>
+    <script src="/app.js?v=14"></script>
 </body>
 </html>

@@ -749,7 +749,7 @@ input { font-family: inherit; color: inherit; }
 }
 
 /* ── Setup Page (Auth) ────────────────────────────────── */
-#page-setup {
+#page-setup, #page-login {
     align-items: center;
     justify-content: center;
     padding: 24px;
@@ -1236,3 +1236,226 @@ input { font-family: inherit; color: inherit; }
         display: block !important;
     }
 }
+
+/* ── Multi-user additions ─────────────────────────────── */
+[hidden] { display: none !important; }
+body:not(.is-admin) .admin-only { display: none !important; }
+body.is-admin .user-only { display: none !important; }
+
+#page-login { overflow-y: auto; }
+.setup-hint {
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.5;
+    margin-bottom: 18px;
+}
+.setup-hint code {
+    background: var(--bg-input);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.78rem;
+}
+.btn-sso {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    padding: 10px;
+}
+.btn-sso:hover { background: var(--bg-hover); }
+.login-divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 18px 0;
+    color: var(--text-dim);
+    font-size: 0.75rem;
+}
+.login-divider::before, .login-divider::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--border);
+}
+.setup-step .btn-cancel.setup-btn { margin-top: 8px; }
+
+/* Tabs can outgrow a phone screen */
+.tab-bar { overflow-x: auto; scrollbar-width: none; }
+.tab-bar::-webkit-scrollbar { display: none; }
+.tab-btn { white-space: nowrap; padding: 10px 14px; }
+
+.section-title {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    margin: 24px 0 8px;
+}
+.section-title:first-child { margin-top: 0; }
+.section-hint { margin-top: 12px; border-bottom: none; }
+.card-section-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-dim);
+    padding: 14px 0 2px;
+}
+.setting-value { font-size: 0.85rem; color: var(--text-muted); }
+
+/* Inputs that the original CSS only styled for type=text */
+.text-input,
+.form-group input[type="password"],
+.form-group input[type="number"],
+.device-setting-value input[type="password"],
+select {
+    padding: 8px 10px;
+    background: var(--bg-input);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    font-size: 0.85rem;
+    color: var(--text);
+    font-family: inherit;
+    outline: none;
+}
+.form-group input[type="password"],
+.form-group input[type="number"],
+.form-group select { width: 100%; padding: 10px 12px; font-size: 0.9rem; }
+.text-input:focus, select:focus,
+.form-group input[type="password"]:focus,
+.form-group input[type="number"]:focus { border-color: var(--accent); }
+.setting-row .text-input { flex: 1.4; min-width: 0; }
+
+.btn-small {
+    padding: 6px 12px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border-radius: var(--radius-sm);
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    white-space: nowrap;
+}
+.btn-small:hover { background: var(--bg-hover); }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover { background: var(--danger-dim); }
+
+.badge {
+    display: inline-block;
+    font-size: 0.66rem;
+    font-weight: 600;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--bg-hover);
+    color: var(--text-muted);
+    vertical-align: middle;
+    margin-left: 4px;
+}
+.avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--accent-dim);
+    color: var(--accent);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 0.8rem;
+    flex-shrink: 0;
+}
+
+.inline-form {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin: 8px 0 12px;
+}
+#sso-form.inline-form { background: none; border: none; padding: 0; }
+.form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.form-row .form-group { flex: 1; min-width: 120px; }
+.inline-form-actions { display: flex; align-items: center; gap: 10px; }
+.inline-controls { display: flex; gap: 8px; }
+.inline-controls input { flex: 1; min-width: 0; }
+.spacer { flex: 1; }
+
+.item-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+.item-row.muted { opacity: 0.5; }
+.item-main { flex: 1; min-width: 0; }
+.item-title { font-size: 0.85rem; overflow-wrap: anywhere; }
+.item-meta { font-size: 0.72rem; color: var(--text-dim); margin-top: 2px; }
+
+.share-list { display: flex; flex-direction: column; }
+.share-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.85rem;
+}
+.share-row:last-child { border-bottom: none; }
+.share-row .device-dot { display: inline-block; vertical-align: middle; }
+.device-card-actions .btn-delete { margin-top: 4px; }
+
+/* Picking a geofence centre on the map */
+#pick-banner {
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px 8px 16px;
+    background: var(--bg-surface);
+    border: 1px solid var(--accent);
+    border-radius: 999px;
+    font-size: 0.82rem;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+#map.picking { cursor: crosshair; }
+.geofence-label {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    color: var(--text-muted);
+    font-size: 0.72rem;
+}
+
+/* A hint belongs to the row above it: drop the row's divider instead of
+   overlapping it (the negative margin made the hint look struck through). */
+.setting-row:has(+ .setting-hint) { border-bottom: none; padding-bottom: 6px; }
+.setting-row + .setting-hint { margin-top: 0; }
+.item-list .setting-hint { border-bottom: none; margin: 0; padding: 2px 0 6px; }
+
+/* Collapsible AirTag access list inside a user card */
+.access-toggle {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    text-align: left;
+}
+.access-toggle:hover { color: var(--text); }
+.access-toggle span:first-child { flex: 1; }
+.access-count { font-size: 0.75rem; color: var(--text-dim); }
+.access-toggle svg { width: 16px; height: 16px; transition: transform 0.2s; }
+.access-toggle.open svg { transform: rotate(180deg); }
+.access-list { padding-left: 12px; border-bottom: 1px solid var(--border); }
+.share-list .setting-hint { border-bottom: none; margin: 0; padding: 8px 0; }

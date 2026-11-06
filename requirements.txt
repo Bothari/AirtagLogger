@@ -4,3 +4,6 @@ uvicorn[standard]>=0.29.0
 aiosqlite>=0.20.0
 apscheduler>=3.10.0
 python-multipart>=0.0.9
+python-jose[cryptography]==3.4.0
+bcrypt==4.2.1
+httpx==0.28.1

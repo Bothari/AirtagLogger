@@ -20,6 +20,7 @@ from findmy import (
     TrustedDeviceSecondFactorMethod,
 )
 
+from app.alerts import evaluate_rules
 from app.database import DATA_DIR, DB_PATH
 
 log = logging.getLogger(__name__)
@@ -190,6 +191,8 @@ async def poll_once() -> dict:
     Fetch locations for all registered devices and store them in the database.
     Returns a summary dict with counts.
     """
+    if os.environ.get("DISABLE_POLLING") == "1":
+        return {"error": "Polling is disabled on this instance", "fetched": 0}
     account = await get_account()
     if account is None:
         return {"error": "No Apple account session. Run initial auth first.", "fetched": 0}
@@ -239,9 +242,11 @@ async def poll_once() -> dict:
         async with aiosqlite.connect(DB_PATH) as db:
             try:
                 await db.execute(
-                    """INSERT INTO locations (device_id, latitude, longitude, timestamp)
-                       VALUES (?, ?, ?, ?)""",
-                    (device_id, location.latitude, location.longitude, location.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ")),
+                    """INSERT INTO locations (device_id, latitude, longitude, timestamp, accuracy)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (device_id, location.latitude, location.longitude,
+                     location.timestamp.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     getattr(location, "horizontal_accuracy", None)),
                 )
                 await db.commit()
                 total_fetched += 1
@@ -267,6 +272,11 @@ async def poll_once() -> dict:
 
     # Clean up old data
     await _cleanup_old_locations()
+
+    try:
+        await evaluate_rules()
+    except Exception:
+        log.exception("Alert evaluation failed")
 
     summary = {"fetched": total_fetched, "devices": len(devices), "errors": errors}
     log.info("Poll complete: %s", summary)
@@ -312,6 +322,10 @@ async def _poll_loop():
 def start_polling():
     """Start the background polling task."""
     global _poll_task
+    if os.environ.get("DISABLE_POLLING") == "1":
+        # For staging copies that must not share the live Apple session.
+        log.warning("Polling disabled by DISABLE_POLLING=1")
+        return
     if _poll_task is not None and not _poll_task.done():
         log.warning("Polling already running")
         return

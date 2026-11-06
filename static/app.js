@@ -9,6 +9,10 @@ let locationCache = {}; // deviceId -> [{latitude, longitude, timestamp, _ts}, .
 let scrubberMin = 0;
 let scrubberMax = 0;
 let map;
+let me = null;          // the signed-in user (from /api/auth/me)
+let geofences = [];     // this user's places
+let geofenceLayer = null;
+let pickingGeofence = false;
 
 // ── Init ─────────────────────────────────────────────────
 document.addEventListener("DOMContentLoaded", async () => {
@@ -22,7 +26,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     initScrubber();
     initAddDeviceModal();
     initAuth();
-    await checkAuth();
+    initLogin();
+    initAccountTab();
+    initAlertsTab();
+    initUsersTab();
+    initAdminSettings();
+    await boot();
 });
 
 // ── Map ──────────────────────────────────────────────────
@@ -36,6 +45,7 @@ function initMap() {
         attribution: 'Tiles &copy; <a href="https://www.esri.com/">Esri</a> &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors',
     }).addTo(map);
     L.tileLayer(`${esri}/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}`, tileOpts).addTo(map);
+    map.on("click", onMapPick);
 }
 
 // ── Navigation ───────────────────────────────────────────
@@ -128,11 +138,7 @@ function initGeneralSettings() {
             const val = parseInt(pollInput.value, 10);
             if (!val || val < 1) return;
             try {
-                await fetch("/api/settings", {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ poll_interval: val }),
-                });
+                await api("PUT", "/api/settings", { poll_interval: val });
                 toast(`Poll interval set to ${val} min`, "success");
             } catch (e) {
                 toast("Failed to save interval", "error");
@@ -149,11 +155,7 @@ function initGeneralSettings() {
             const val = parseInt(retentionInput.value, 10);
             if (isNaN(val) || val < 0) return;
             try {
-                await fetch("/api/settings", {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ retention_days: val }),
-                });
+                await api("PUT", "/api/settings", { retention_days: val });
                 toast(val === 0 ? "Data retention: keep forever" : `Data retention set to ${val} days`, "success");
             } catch (e) {
                 toast("Failed to save retention", "error");
@@ -166,9 +168,8 @@ function initGeneralSettings() {
         pollBtn.disabled = true;
         pollBtn.textContent = "Polling...";
         try {
-            const res = await fetch("/api/poll", { method: "POST" });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const result = await res.json();
+            const result = await api("POST", "/api/poll");
+            if (result.error) throw new Error(result.error);
             toast(`Poll complete: ${result.fetched} location(s) fetched`, "success");
             await loadDevices();
         } catch (e) {
@@ -306,6 +307,7 @@ async function doExport() {
 
     try {
         const res = await fetch(`/api/export?${params}`);
+        if (res.status === 401) { showLogin(); return; }
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             throw new Error(err.detail || `HTTP ${res.status}`);
@@ -447,7 +449,7 @@ async function submitDevice() {
     form.append("key_file", selectedFile);
 
     try {
-        const res = await fetch("/api/devices", { method: "POST", body: form });
+        const res = await fetch("/api/devices", { method: "POST", body: form, headers: { "X-Requested-With": "fetch" } });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             toast(err.detail || "Failed to add device", "error");
@@ -465,6 +467,13 @@ async function submitDevice() {
 }
 
 // ── Load Devices ─────────────────────────────────────────
+let knownDevices = new Set();
+
+// Devices this user has not hidden from their map.
+function mapDevices() {
+    return devices.filter(d => !d.hidden);
+}
+
 async function loadDevices() {
     try {
         devices = await fetchJSON("/api/devices");
@@ -472,15 +481,11 @@ async function loadDevices() {
         devices = [];
     }
 
-    // Enable all by default
-    if (selectedDevices.size === 0 && devices.length > 0) {
-        devices.forEach(d => selectedDevices.add(d.id));
-    }
-    // Remove stale selections
-    const ids = new Set(devices.map(d => d.id));
+    // Select every map device by default, and any that appeared since last load
+    const ids = new Set(mapDevices().map(d => d.id));
     selectedDevices.forEach(id => { if (!ids.has(id)) selectedDevices.delete(id); });
-    // Add new devices
-    devices.forEach(d => { if (!ids.has(d.id)) selectedDevices.add(d.id); });
+    mapDevices().forEach(d => { if (!knownDevices.has(d.id)) selectedDevices.add(d.id); });
+    devices.forEach(d => knownDevices.add(d.id));
 
     // Auto-select all for export if first load
     if (exportSelectedDevices.size === 0 && devices.length > 0) {
@@ -490,9 +495,12 @@ async function loadDevices() {
     renderFilterList();
     renderSettingsDevices();
     renderExportDevices();
+    renderRuleDeviceOptions();
     updateConfigSummary();
     updateEmptyStates();
     refreshMap();
+    // User cards list every AirTag, so they can only be drawn once devices are in.
+    loadUsers();
 }
 
 function updateEmptyStates() {
@@ -506,9 +514,10 @@ function renderFilterList() {
     const container = document.getElementById("device-filter-list");
     container.innerHTML = "";
 
-    devices.forEach(d => {
+    mapDevices().forEach(d => {
         const item = document.createElement("label");
         item.className = "device-filter-item";
+        item.dataset.id = d.id;
 
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
@@ -550,146 +559,191 @@ function renderFilterList() {
 
 // ── Settings Device List ─────────────────────────────────
 const SWATCH_COLORS = ["#4f8cff","#ff5c5c","#34d399","#fbbf24","#a78bfa","#f472b6","#fb923c","#22d3ee"];
+const ACCESS_LABELS = { admin: "", edit: "Can edit", view: "View only" };
+
+function swatchesHtml(selected) {
+    return SWATCH_COLORS.map(c =>
+        `<button class="color-swatch${c === selected ? " selected" : ""}" data-color="${c}" style="background:${c}"></button>`
+    ).join("");
+}
 
 function renderSettingsDevices() {
     const container = document.getElementById("settings-device-list");
+    const expandedId = container.querySelector(".device-card.expanded")?.dataset.id;
     container.innerHTML = "";
 
     devices.forEach(d => {
         const card = document.createElement("div");
-        card.className = "device-card" + (d.enabled === 0 ? " disabled" : "");
+        card.className = "device-card" + (d.enabled === 0 ? " disabled" : "") + (d.id === expandedId ? " expanded" : "");
         card.dataset.id = d.id;
 
         const lastFetched = d.last_fetched ? timeAgo(d.last_fetched) : "Never";
         const lastFetchedExact = d.last_fetched ? formatExact(d.last_fetched) : "";
-        const statusText = d.enabled === 0 ? " (Disabled)" : "";
+        const badges = [
+            d.enabled === 0 ? "Disabled" : "",
+            d.hidden ? "Hidden" : "",
+            ACCESS_LABELS[d.access],
+        ].filter(Boolean).map(b => `<span class="badge">${b}</span>`).join("");
 
-        // Header (always visible, clickable to expand)
         const header = document.createElement("div");
         header.className = "device-card-header";
         header.innerHTML = `
             <span class="device-card-swatch" style="background:${esc(d.color)}"></span>
             <div class="device-card-info">
-                <div class="device-card-name">${esc(d.name)}${statusText}</div>
+                <div class="device-card-name">${esc(d.name)} ${badges}</div>
                 <div class="device-card-meta" title="${esc(lastFetchedExact)}">Last polled: ${lastFetched}</div>
             </div>
             <svg class="device-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>`;
-
         header.addEventListener("click", () => {
             const wasExpanded = card.classList.contains("expanded");
-            // Collapse all other cards
             container.querySelectorAll(".device-card.expanded").forEach(c => c.classList.remove("expanded"));
-            if (!wasExpanded) card.classList.add("expanded");
+            if (!wasExpanded) {
+                card.classList.add("expanded");
+                if (d.access === "admin") loadShares(card, d);
+            }
         });
 
-        // Body (expanded settings)
         const body = document.createElement("div");
         body.className = "device-card-body";
-
-        // Rename
+        const canEdit = d.access === "admin" || d.access === "edit";
         const originalName = d.original_name || d.name;
-        const nameChanged = d.name !== originalName;
-        const revertHtml = `<div class="device-setting-original">Original: ${esc(originalName)}${nameChanged ? ' <button class="btn-revert-name">Reset</button>' : ''}</div>`;
-
-        // Color swatches
-        const swatchesHtml = SWATCH_COLORS.map(c =>
-            `<button class="color-swatch${c === d.color ? " selected" : ""}" data-color="${c}" style="background:${c}"></button>`
-        ).join("");
 
         body.innerHTML = `
+            ${canEdit ? `
             <div class="device-setting">
                 <span class="device-setting-label">Name</span>
                 <div class="device-setting-value">
-                    <input type="text" class="rename-input" value="${esc(d.name)}">
-                    ${revertHtml}
+                    <input type="text" class="device-name-input" value="${esc(d.name)}">
+                    <div class="device-setting-original">Original: ${esc(originalName)}${d.name !== originalName ? ' <button class="btn-revert-name">Reset</button>' : ""}</div>
                 </div>
             </div>
             <div class="device-setting">
                 <span class="device-setting-label">Color</span>
-                <div class="device-setting-value">
-                    <div class="device-color-swatches">${swatchesHtml}</div>
-                </div>
-            </div>
+                <div class="device-setting-value"><div class="device-color-swatches">${swatchesHtml(d.color)}</div></div>
+            </div>` : ""}
             <div class="device-setting">
-                <span class="device-setting-label">Enabled</span>
+                <span class="device-setting-label">Hide from my map</span>
                 <div class="device-setting-value">
-                    <label class="toggle">
-                        <input type="checkbox" class="toggle-enabled" ${d.enabled !== 0 ? "checked" : ""}>
-                        <span class="toggle-track"></span>
-                    </label>
+                    <label class="toggle"><input type="checkbox" class="pref-hidden" ${d.hidden ? "checked" : ""}><span class="toggle-track"></span></label>
                 </div>
             </div>
+            ${d.access === "admin" ? `
+            <div class="device-setting">
+                <span class="device-setting-label">Polling</span>
+                <div class="device-setting-value">
+                    <label class="toggle"><input type="checkbox" class="toggle-enabled" ${d.enabled !== 0 ? "checked" : ""}><span class="toggle-track"></span></label>
+                </div>
+            </div>
+            <div class="card-section-label">Shared with</div>
+            <div class="share-list"><div class="setting-hint">Loading…</div></div>
             <div class="device-card-actions">
                 <button class="btn-delete">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"></path><path d="M10 11v6"></path><path d="M14 11v6"></path></svg>
                     Delete device
                 </button>
-            </div>`;
+            </div>` : ""}`;
 
-        // Rename handler (blur = save)
-        const renameInput = body.querySelector(".rename-input");
-        const isEnabled = () => body.querySelector(".toggle-enabled").checked;
-        renameInput.addEventListener("blur", async () => {
-            const newName = renameInput.value.trim();
-            if (!newName) return;
-            await updateDeviceField(d.id, "name", newName);
-            const nameEl = header.querySelector(".device-card-name");
-            nameEl.textContent = newName + (isEnabled() ? "" : " (Disabled)");
+        body.querySelector(".pref-hidden").addEventListener("change", (e) => {
+            updateDevicePrefs(d.id, { hidden: e.target.checked });
         });
-        renameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") renameInput.blur(); });
 
-        // Revert name handler
-        const revertBtn = body.querySelector(".btn-revert-name");
-        if (revertBtn) {
-            revertBtn.addEventListener("click", async () => {
-                await updateDeviceField(d.id, "name", originalName);
-                renameInput.value = originalName;
-                header.querySelector(".device-card-name").textContent = originalName + (isEnabled() ? "" : " (Disabled)");
+        const nameInput = body.querySelector(".device-name-input");
+        if (nameInput) {
+            nameInput.addEventListener("blur", () => {
+                const value = nameInput.value.trim();
+                if (value && value !== d.name) updateDeviceField(d.id, { name: value });
+            });
+            nameInput.addEventListener("keydown", (e) => { if (e.key === "Enter") nameInput.blur(); });
+            body.querySelector(".btn-revert-name")?.addEventListener("click", () => updateDeviceField(d.id, { name: originalName }));
+            body.querySelector(".device-color-swatches").addEventListener("click", (e) => {
+                const swatch = e.target.closest(".color-swatch");
+                if (swatch) updateDeviceField(d.id, { color: swatch.dataset.color });
             });
         }
 
-        // Color swatch handler
-        body.querySelector(".device-color-swatches").addEventListener("click", async (e) => {
-            const swatch = e.target.closest(".color-swatch");
-            if (!swatch) return;
-            body.querySelectorAll(".color-swatch").forEach(s => s.classList.remove("selected"));
-            swatch.classList.add("selected");
-            await updateDeviceField(d.id, "color", swatch.dataset.color);
-            header.querySelector(".device-card-swatch").style.background = swatch.dataset.color;
+        body.querySelector(".toggle-enabled")?.addEventListener("change", (e) => {
+            updateDeviceField(d.id, { enabled: e.target.checked });
         });
-
-        // Enable/disable toggle
-        body.querySelector(".toggle-enabled").addEventListener("change", async (e) => {
-            await updateDeviceField(d.id, "enabled", e.target.checked);
-            card.classList.toggle("disabled", !e.target.checked);
-            const nameEl = header.querySelector(".device-card-name");
-            nameEl.textContent = renameInput.value.trim() + (e.target.checked ? "" : " (Disabled)");
-        });
-
-        // Delete handler
-        body.querySelector(".btn-delete").addEventListener("click", (e) => {
+        body.querySelector(".btn-delete")?.addEventListener("click", (e) => {
             e.stopPropagation();
             showDeleteConfirm(body, d);
         });
 
         card.append(header, body);
         container.appendChild(card);
+        if (d.id === expandedId && d.access === "admin") loadShares(card, d);
     });
 }
 
-async function updateDeviceField(deviceId, field, value) {
+async function loadShares(card, device) {
+    const list = card.querySelector(".share-list");
+    if (!list) return;
     try {
-        const res = await fetch(`/api/devices/${deviceId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ [field]: value }),
+        const shares = await fetchJSON(`/api/admin/devices/${device.id}/shares`);
+        const others = shares.filter(s => s.user_id !== me.id);
+        if (others.length === 0) {
+            list.innerHTML = '<div class="setting-hint">No other users yet. Add some on the Users tab.</div>';
+            return;
+        }
+        list.innerHTML = "";
+        others.forEach(s => {
+            const row = document.createElement("div");
+            row.className = "share-row";
+            if (s.role === "admin") {
+                row.innerHTML = `<span>${esc(s.username)}</span><span class="badge">Admin, sees everything</span>`;
+            } else {
+                row.innerHTML = `<span>${esc(s.username)}</span>
+                    <select>
+                        <option value="">No access</option>
+                        <option value="view">View</option>
+                        <option value="edit">Edit</option>
+                    </select>`;
+                const sel = row.querySelector("select");
+                sel.value = s.access || "";
+                sel.addEventListener("change", async () => {
+                    try {
+                        await api("PUT", `/api/admin/devices/${device.id}/shares/${s.user_id}`, { access: sel.value || null });
+                        toast(sel.value ? `Shared with ${s.username}` : `Unshared from ${s.username}`, "success");
+                    } catch (e) {
+                        toast(e.message, "error");
+                        sel.value = s.access || "";
+                    }
+                });
+            }
+            list.appendChild(row);
         });
-        if (!res.ok) throw new Error("Update failed");
-        // Update local state
-        const device = devices.find(d => d.id === deviceId);
-        if (device) device[field] = field === "enabled" ? (value ? 1 : 0) : value;
-        renderFilterList();
-        refreshMap();
+    } catch (e) {
+        list.innerHTML = `<div class="setting-hint">Couldn't load sharing: ${esc(e.message)}</div>`;
+    }
+}
+
+function replaceDevice(updated) {
+    const idx = devices.findIndex(d => d.id === updated.id);
+    if (idx !== -1) devices[idx] = updated;
+    if (!updated.hidden && !selectedDevices.has(updated.id) && !knownDevices.has(updated.id)) {
+        selectedDevices.add(updated.id);
+    }
+    renderFilterList();
+    renderSettingsDevices();
+    renderExportDevices();
+    renderRuleDeviceOptions();
+    refreshMap();
+}
+
+async function updateDeviceField(deviceId, fields) {
+    try {
+        replaceDevice(await api("PATCH", `/api/devices/${deviceId}`, fields));
+    } catch (e) {
+        toast("Failed to update: " + e.message, "error");
+    }
+}
+
+async function updateDevicePrefs(deviceId, prefs) {
+    try {
+        const updated = await api("PUT", `/api/devices/${deviceId}/prefs`, prefs);
+        // Un-hiding puts it back on the map
+        if (prefs.hidden === false) selectedDevices.add(deviceId);
+        replaceDevice(updated);
     } catch (e) {
         toast("Failed to update: " + e.message, "error");
     }
@@ -701,14 +755,13 @@ function showDeleteConfirm(container, device) {
 
     const bar = document.createElement("div");
     bar.className = "confirm-bar";
-    bar.innerHTML = `<span>Delete "${esc(device.name)}"?</span>
+    bar.innerHTML = `<span>Delete "${esc(device.name)}" and all its history, for everyone?</span>
         <button class="btn-confirm-yes">Delete</button>
         <button class="btn-confirm-no">Cancel</button>`;
 
     bar.querySelector(".btn-confirm-yes").addEventListener("click", async () => {
         try {
-            const res = await fetch(`/api/devices/${device.id}`, { method: "DELETE" });
-            if (!res.ok) throw new Error("Delete failed");
+            await api("DELETE", `/api/devices/${device.id}`);
             selectedDevices.delete(device.id);
             toast(`${device.name} deleted`, "success");
             await loadDevices();
@@ -737,9 +790,10 @@ async function refreshMap() {
     clearMapLayers();
     locationCache = {};
 
-    const visible = devices.filter(d => selectedDevices.has(d.id));
+    const visible = mapDevices().filter(d => selectedDevices.has(d.id));
     if (visible.length === 0) {
         updateScrubber();
+        renderGeofencesOnMap();
         return;
     }
 
@@ -832,7 +886,8 @@ function updateScrubber() {
 function renderMapAtTime(timeMs, fitBounds = false) {
     clearMapLayers();
 
-    const visible = devices.filter(d => selectedDevices.has(d.id));
+    renderGeofencesOnMap();
+    const visible = mapDevices().filter(d => selectedDevices.has(d.id));
     if (visible.length === 0) return;
 
     const enabledIds = new Set(devices.filter(d => d.enabled !== 0).map(d => d.id));
@@ -939,15 +994,11 @@ function renderMapAtTime(timeMs, fitBounds = false) {
 }
 
 function updateLastSeen(deviceId, timestamp) {
-    const idx = devices.findIndex(d => d.id === deviceId);
-    if (idx === -1) return;
-    const items = document.querySelectorAll(".device-filter-item");
-    if (items[idx]) {
-        const el = items[idx].querySelector(".device-filter-lastseen");
-        if (el) {
-            el.textContent = timeAgo(timestamp);
-            el.title = formatExact(timestamp);
-        }
+    const item = document.querySelector(`.device-filter-item[data-id="${CSS.escape(deviceId)}"]`);
+    const el = item && item.querySelector(".device-filter-lastseen");
+    if (el) {
+        el.textContent = timeAgo(timestamp);
+        el.title = formatExact(timestamp);
     }
 }
 
@@ -961,16 +1012,39 @@ function toast(message, type = "info") {
     setTimeout(() => el.remove(), 3200);
 }
 
-// ── Helpers ──────────────────────────────────────────────
-async function fetchJSON(url) {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
+// ── API helpers ──────────────────────────────────────────
+class ApiError extends Error {
+    constructor(status, message) { super(message); this.status = status; }
+}
+
+// Every API call goes through here: adds the CSRF header, unwraps JSON, and
+// bounces to the login page when the session has gone.
+async function api(method, url, body) {
+    const opts = { method, headers: { "X-Requested-With": "fetch" } };
+    if (body !== undefined) {
+        opts.headers["Content-Type"] = "application/json";
+        opts.body = JSON.stringify(body);
+    }
+    const res = await fetch(url, opts);
+    if (res.status === 401 && !url.startsWith("/api/auth/")) {
+        showLogin();
+        throw new ApiError(401, "Signed out");
+    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+        const detail = typeof data.detail === "string" ? data.detail : `HTTP ${res.status}`;
+        throw new ApiError(res.status, detail);
+    }
+    return data;
+}
+
+function fetchJSON(url) {
+    return api("GET", url);
 }
 
 function esc(str) {
     const d = document.createElement("div");
-    d.textContent = str;
+    d.textContent = str ?? "";
     return d.innerHTML;
 }
 
@@ -1012,34 +1086,768 @@ function formatExact(iso) {
     });
 }
 
-// ── Auth Flow ────────────────────────────────────────────
-let selected2faMethod = null;
+function isAdmin() {
+    return me && me.role === "admin";
+}
 
-async function checkAuth() {
+// ── Boot / app login ─────────────────────────────────────
+let authConfig = { setup_required: false, oidc_enabled: false };
+
+const SSO_ERRORS = {
+    failed: "Single sign-on failed. Try again, or sign in with a password.",
+    expired: "The sign-in took too long. Please try again.",
+    disabled: "Single sign-on is turned off.",
+    not_provisioned: "Your SSO account isn't set up here yet. Ask an admin to create it.",
+    already_linked: "That SSO account is already linked to a different user.",
+};
+
+async function boot() {
+    const params = new URLSearchParams(location.search);
+    const ssoError = params.get("sso_error");
+    const ssoLinked = params.get("sso_linked");
+    if (ssoError || ssoLinked) history.replaceState(null, "", location.pathname);
+
     try {
-        const status = await fetchJSON("/api/auth/status");
-        if (status.authenticated) {
-            showApp();
-        } else {
-            showSetup();
-        }
+        authConfig = await api("GET", "/api/auth/config");
+    } catch {}
+
+    try {
+        me = await api("GET", "/api/auth/me");
     } catch {
+        me = null;
+    }
+
+    if (!me) {
+        showLogin(ssoError ? (SSO_ERRORS[ssoError] || SSO_ERRORS.failed) : null);
+        return;
+    }
+    if (ssoError) toast(SSO_ERRORS[ssoError] || SSO_ERRORS.failed, "error");
+    if (ssoLinked) toast("Single sign-on linked to your account", "success");
+    await enterApp();
+}
+
+function hideAllPages() {
+    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+    document.getElementById("bottom-nav").style.display = "none";
+}
+
+function showLogin(notice = null) {
+    me = null;
+    hideAllPages();
+    document.getElementById("page-login").classList.add("active");
+    const noticeEl = document.getElementById("login-notice");
+    noticeEl.hidden = !notice;
+    noticeEl.textContent = notice || "";
+
+    const setup = authConfig.setup_required;
+    document.getElementById("setup-form").hidden = !setup;
+    document.getElementById("login-form").hidden = setup;
+    document.getElementById("pwchange-form").hidden = true;
+    document.getElementById("login-subtitle").textContent = setup ? "Welcome! Let's get you set up." : "Sign in to continue";
+
+    const sso = document.getElementById("btn-sso");
+    sso.hidden = !authConfig.oidc_enabled;
+    sso.textContent = authConfig.oidc_button_label || "Sign in with SSO";
+    document.getElementById("login-divider").hidden = !authConfig.oidc_enabled;
+}
+
+function showPasswordChange() {
+    hideAllPages();
+    document.getElementById("page-login").classList.add("active");
+    document.getElementById("login-notice").hidden = true;
+    document.getElementById("setup-form").hidden = true;
+    document.getElementById("login-form").hidden = true;
+    document.getElementById("pwchange-form").hidden = false;
+    document.getElementById("login-subtitle").textContent = `Hi ${me.username}`;
+    document.getElementById("pwchange-current").focus();
+}
+
+async function enterApp() {
+    if (me.force_password_change) {
+        showPasswordChange();
+        return;
+    }
+    document.body.classList.toggle("is-admin", isAdmin());
+    document.body.classList.toggle("is-user", !isAdmin());
+
+    const range = me.prefs.default_range_hours;
+    if (range !== undefined) {
+        activeTimeRange = range;
+        document.querySelectorAll("#time-range-group .time-btn").forEach(b =>
+            b.classList.toggle("active", parseInt(b.dataset.range, 10) === range));
+    }
+    renderAccount();
+
+    let apple = { authenticated: true };
+    try { apple = await api("GET", "/api/apple/status"); } catch {}
+    if (!apple.authenticated) {
         showSetup();
+        return;
+    }
+    showApp();
+}
+
+function initLogin() {
+    document.getElementById("login-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = e.submitter;
+        btn.disabled = true;
+        try {
+            me = await api("POST", "/api/auth/login", {
+                username: document.getElementById("login-username").value.trim(),
+                password: document.getElementById("login-password").value,
+            });
+            document.getElementById("login-password").value = "";
+            await enterApp();
+        } catch (err) {
+            showLogin(err.message);
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    document.getElementById("setup-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const btn = e.submitter;
+        btn.disabled = true;
+        try {
+            await api("POST", "/api/auth/setup", {
+                token: document.getElementById("setup-token").value.trim(),
+                username: document.getElementById("setup-username").value.trim(),
+                password: document.getElementById("setup-password").value,
+            });
+            authConfig.setup_required = false;
+            me = await api("GET", "/api/auth/me");
+            await enterApp();
+        } catch (err) {
+            const notice = document.getElementById("login-notice");
+            notice.textContent = err.message;
+            notice.hidden = false;
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    document.getElementById("pwchange-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+            await api("POST", "/api/auth/change-password", {
+                current_password: document.getElementById("pwchange-current").value,
+                new_password: document.getElementById("pwchange-new").value,
+            });
+            document.getElementById("pwchange-current").value = "";
+            document.getElementById("pwchange-new").value = "";
+            me = await api("GET", "/api/auth/me");
+            await enterApp();
+        } catch (err) {
+            const notice = document.getElementById("login-notice");
+            notice.textContent = err.message;
+            notice.hidden = false;
+        }
+    });
+
+    document.getElementById("btn-sso").addEventListener("click", () => {
+        location.href = "/api/auth/oidc/start";
+    });
+
+    document.querySelectorAll(".btn-logout").forEach(btn => btn.addEventListener("click", async () => {
+        try { await api("POST", "/api/auth/logout"); } catch {}
+        // Drop everything the previous user could see.
+        devices = [];
+        geofences = [];
+        selectedDevices.clear();
+        knownDevices.clear();
+        clearMapLayers();
+        if (geofenceLayer) { map.removeLayer(geofenceLayer); geofenceLayer = null; }
+        showLogin();
+    }));
+}
+
+// ── Account tab ──────────────────────────────────────────
+function renderAccount() {
+    document.getElementById("account-name").textContent = `${me.username}${isAdmin() ? " (admin)" : ""}`;
+    document.getElementById("pref-range").value = String(me.prefs.default_range_hours ?? 24);
+    const hasKey = !!me.prefs.pushover_user_key;
+    document.getElementById("pushover-status").textContent = hasKey ? "Set up" : "Not set up";
+    document.getElementById("btn-test-push").hidden = !hasKey;
+    document.getElementById("pushover-hint").textContent = hasKey
+        ? "Alerts are sent to your Pushover account."
+        : isAdmin()
+            ? "Add your Pushover user key on your card in the Users tab to get alerts."
+            : "Alerts are recorded below but not sent. Ask an admin to add your Pushover key.";
+
+    const ssoRow = document.getElementById("sso-row");
+    ssoRow.hidden = !authConfig.oidc_enabled && !me.sso_linked;
+    document.getElementById("sso-status").textContent = me.sso_linked ? "Linked" : "Not linked";
+    const linkBtn = document.getElementById("btn-sso-link");
+    linkBtn.textContent = me.sso_linked ? "Unlink" : "Link";
+    linkBtn.hidden = !me.sso_linked && !authConfig.oidc_enabled;
+
+    // SSO-only accounts set a first password without a current one.
+    document.getElementById("account-pw-current-group").hidden = !me.has_password;
+    document.getElementById("pw-title").textContent = me.has_password ? "Change password" : "Set a password";
+}
+
+async function savePrefs(prefs, message) {
+    try {
+        me.prefs = await api("PATCH", "/api/auth/me/prefs", prefs);
+        if (message) toast(message, "success");
+        return true;
+    } catch (e) {
+        toast(e.message, "error");
+        return false;
     }
 }
 
+function initAccountTab() {
+    document.getElementById("pref-range").addEventListener("change", (e) => {
+        savePrefs({ default_range_hours: parseInt(e.target.value, 10) }, "Default range saved");
+    });
+
+    document.getElementById("btn-sso-link").addEventListener("click", async () => {
+        if (!me.sso_linked) {
+            location.href = "/api/auth/oidc/start?link=1";
+            return;
+        }
+        try {
+            await api("POST", "/api/auth/unlink-sso");
+            me.sso_linked = false;
+            renderAccount();
+            toast("Single sign-on unlinked", "success");
+        } catch (e) {
+            toast(e.message, "error");
+        }
+    });
+
+    document.getElementById("account-pw-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const current = document.getElementById("account-pw-current");
+        const next = document.getElementById("account-pw-new");
+        try {
+            await api("POST", "/api/auth/change-password", {
+                current_password: current.value || null,
+                new_password: next.value,
+            });
+            current.value = "";
+            next.value = "";
+            me.has_password = true;
+            renderAccount();
+            toast("Password updated. Other devices have been signed out.", "success");
+        } catch (err) {
+            toast(err.message, "error");
+        }
+    });
+}
+
+// ── Alerts tab: places, rules, events ────────────────────
+const KIND_LABELS = { enter: "arrives at", exit: "leaves", both: "arrives at or leaves" };
+
+function initAlertsTab() {
+    document.getElementById("btn-test-push").addEventListener("click", async () => {
+        try {
+            await api("POST", "/api/alerts/test");
+            toast("Test notification sent", "success");
+        } catch (e) {
+            toast(e.message, "error");
+        }
+    });
+
+    // Places
+    const gForm = document.getElementById("geofence-form");
+    document.getElementById("btn-add-geofence").addEventListener("click", () => openGeofenceForm());
+    document.getElementById("btn-geofence-cancel").addEventListener("click", closeGeofenceForm);
+    document.getElementById("btn-geofence-pick").addEventListener("click", startPicking);
+    document.getElementById("btn-pick-cancel").addEventListener("click", stopPicking);
+    gForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const id = document.getElementById("geofence-id").value;
+        const body = {
+            name: document.getElementById("geofence-name").value.trim(),
+            latitude: parseFloat(document.getElementById("geofence-lat").value),
+            longitude: parseFloat(document.getElementById("geofence-lon").value),
+            radius_m: parseFloat(document.getElementById("geofence-radius").value),
+        };
+        try {
+            await api(id ? "PUT" : "POST", id ? `/api/geofences/${id}` : "/api/geofences", body);
+            closeGeofenceForm();
+            toast(`${body.name} saved`, "success");
+            await loadAlerts();
+        } catch (err) {
+            toast(err.message, "error");
+        }
+    });
+
+    // Rules
+    const rForm = document.getElementById("rule-form");
+    const kind = document.getElementById("rule-kind");
+    kind.addEventListener("change", () => {
+        const stale = kind.value === "stale";
+        document.getElementById("rule-geofence-group").hidden = stale;
+        document.getElementById("rule-stale-group").hidden = !stale;
+    });
+    document.getElementById("btn-add-rule").addEventListener("click", () => {
+        if (!devices.length) { toast("No AirTags to watch yet", "info"); return; }
+        rForm.hidden = false;
+        document.getElementById("btn-add-rule").hidden = true;
+    });
+    document.getElementById("btn-rule-cancel").addEventListener("click", () => {
+        rForm.hidden = true;
+        document.getElementById("btn-add-rule").hidden = false;
+    });
+    rForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = {
+            device_id: document.getElementById("rule-device").value,
+            kind: kind.value,
+        };
+        if (kind.value === "stale") {
+            body.stale_hours = parseFloat(document.getElementById("rule-stale").value);
+        } else {
+            body.geofence_id = document.getElementById("rule-geofence").value;
+            if (!body.geofence_id) { toast("Add a place first", "error"); return; }
+        }
+        try {
+            await api("POST", "/api/alerts", body);
+            rForm.hidden = true;
+            document.getElementById("btn-add-rule").hidden = false;
+            toast("Alert added", "success");
+            await loadAlerts();
+        } catch (err) {
+            toast(err.message, "error");
+        }
+    });
+}
+
+function renderRuleDeviceOptions() {
+    const sel = document.getElementById("rule-device");
+    const current = sel.value;
+    sel.innerHTML = devices.map(d => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join("");
+    if (current) sel.value = current;
+}
+
+async function loadAlerts() {
+    let rules = [], events = [];
+    try {
+        [geofences, rules, events] = await Promise.all([
+            fetchJSON("/api/geofences"), fetchJSON("/api/alerts"), fetchJSON("/api/alerts/events"),
+        ]);
+    } catch {
+        return;
+    }
+    renderGeofenceList();
+    renderRuleList(rules);
+    renderEventList(events);
+    renderGeofencesOnMap();
+}
+
+function renderGeofenceList() {
+    const list = document.getElementById("geofence-list");
+    document.getElementById("rule-geofence").innerHTML =
+        geofences.map(g => `<option value="${esc(g.id)}">${esc(g.name)}</option>`).join("");
+    if (!geofences.length) {
+        list.innerHTML = '<div class="setting-hint">No places yet. Add one, like Home or School.</div>';
+        return;
+    }
+    list.innerHTML = "";
+    geofences.forEach(g => {
+        const row = document.createElement("div");
+        row.className = "item-row";
+        row.innerHTML = `<div class="item-main"><div class="item-title">${esc(g.name)}</div>
+            <div class="item-meta">${g.radius_m.toFixed(0)} m around ${g.latitude.toFixed(5)}, ${g.longitude.toFixed(5)}</div></div>
+            <button class="btn-small btn-show">Show</button>
+            <button class="btn-small btn-edit">Edit</button>
+            <button class="btn-small btn-danger btn-del">Delete</button>`;
+        row.querySelector(".btn-show").addEventListener("click", () => {
+            navigateTo("page-map");
+            map.flyTo([g.latitude, g.longitude], 16, { duration: 0.8 });
+        });
+        row.querySelector(".btn-edit").addEventListener("click", () => openGeofenceForm(g));
+        row.querySelector(".btn-del").addEventListener("click", () => confirmInline(row, `Delete ${g.name} and its alerts?`));
+        row.querySelector(".btn-del").addEventListener("confirm", async () => {
+            try {
+                await api("DELETE", `/api/geofences/${g.id}`);
+                await loadAlerts();
+            } catch (e) { toast(e.message, "error"); }
+        });
+        list.appendChild(row);
+    });
+}
+
+function renderRuleList(rules) {
+    const list = document.getElementById("rule-list");
+    if (!rules.length) {
+        list.innerHTML = '<div class="setting-hint">No alerts yet.</div>';
+        return;
+    }
+    const names = Object.fromEntries(devices.map(d => [d.id, d.name]));
+    list.innerHTML = "";
+    rules.forEach(r => {
+        const what = r.kind === "stale"
+            ? `stops reporting for ${r.stale_hours}h`
+            : `${KIND_LABELS[r.kind]} ${esc(r.geofence_name)}`;
+        const state = r.last_state === "in" ? "inside now" : r.last_state === "out" ? "outside now"
+                    : r.last_state === "stale" ? "quiet now" : r.last_state === "fresh" ? "reporting" : "waiting for a fix";
+        const row = document.createElement("div");
+        row.className = "item-row" + (r.enabled ? "" : " muted");
+        row.innerHTML = `<div class="item-main"><div class="item-title">${esc(names[r.device_id] || "Unknown")} ${what}</div>
+            <div class="item-meta">${state}${r.last_fired_at ? ` · last alert ${timeAgo(r.last_fired_at)}` : ""}</div></div>
+            <label class="toggle"><input type="checkbox" ${r.enabled ? "checked" : ""}><span class="toggle-track"></span></label>
+            <button class="btn-small btn-danger btn-del">Delete</button>`;
+        row.querySelector("input").addEventListener("change", async (e) => {
+            try {
+                await api("PUT", `/api/alerts/${r.id}`, {
+                    device_id: r.device_id, kind: r.kind, geofence_id: r.geofence_id,
+                    stale_hours: r.stale_hours, enabled: e.target.checked,
+                });
+                row.classList.toggle("muted", !e.target.checked);
+            } catch (err) { toast(err.message, "error"); }
+        });
+        row.querySelector(".btn-del").addEventListener("click", () => confirmInline(row, "Delete this alert?"));
+        row.querySelector(".btn-del").addEventListener("confirm", async () => {
+            try {
+                await api("DELETE", `/api/alerts/${r.id}`);
+                await loadAlerts();
+            } catch (e) { toast(e.message, "error"); }
+        });
+        list.appendChild(row);
+    });
+}
+
+function renderEventList(events) {
+    const list = document.getElementById("event-list");
+    if (!events.length) {
+        list.innerHTML = '<div class="setting-hint">Nothing yet.</div>';
+        return;
+    }
+    list.innerHTML = events.map(e => `<div class="item-row"><div class="item-main">
+        <div class="item-title">${esc(e.message)}</div>
+        <div class="item-meta" title="${esc(formatExact(e.created_at))}">${timeAgo(e.created_at)}${e.delivered ? "" : " · not delivered (no Pushover key)"}</div>
+        </div></div>`).join("");
+}
+
+// Inline "are you sure?" bar. Fires a `confirm` event on the row's delete button.
+function confirmInline(row, message) {
+    const existing = row.nextElementSibling;
+    if (existing && existing.classList.contains("confirm-bar")) { existing.remove(); return; }
+    const btn = row.querySelector(".btn-del");
+    const bar = document.createElement("div");
+    bar.className = "confirm-bar";
+    bar.innerHTML = `<span>${esc(message)}</span><button class="btn-confirm-yes">Delete</button><button class="btn-confirm-no">Cancel</button>`;
+    bar.querySelector(".btn-confirm-yes").addEventListener("click", () => { bar.remove(); btn.dispatchEvent(new Event("confirm")); });
+    bar.querySelector(".btn-confirm-no").addEventListener("click", () => bar.remove());
+    row.after(bar);
+}
+
+function openGeofenceForm(g = null) {
+    const form = document.getElementById("geofence-form");
+    document.getElementById("geofence-id").value = g ? g.id : "";
+    document.getElementById("geofence-name").value = g ? g.name : "";
+    const center = map.getCenter();
+    document.getElementById("geofence-lat").value = (g ? g.latitude : center.lat).toFixed(6);
+    document.getElementById("geofence-lon").value = (g ? g.longitude : center.lng).toFixed(6);
+    document.getElementById("geofence-radius").value = g ? g.radius_m : 150;
+    form.querySelector('button[type="submit"]').textContent = g ? "Save" : "Add Place";
+    form.hidden = false;
+    document.getElementById("btn-add-geofence").hidden = true;
+    document.getElementById("geofence-name").focus();
+}
+
+function closeGeofenceForm() {
+    document.getElementById("geofence-form").hidden = true;
+    document.getElementById("btn-add-geofence").hidden = false;
+}
+
+function startPicking() {
+    pickingGeofence = true;
+    navigateTo("page-map");
+    document.getElementById("pick-banner").hidden = false;
+    document.getElementById("map").classList.add("picking");
+}
+
+function stopPicking() {
+    pickingGeofence = false;
+    document.getElementById("pick-banner").hidden = true;
+    document.getElementById("map").classList.remove("picking");
+    navigateTo("page-settings");
+}
+
+function onMapPick(e) {
+    if (!pickingGeofence) return;
+    document.getElementById("geofence-lat").value = e.latlng.lat.toFixed(6);
+    document.getElementById("geofence-lon").value = e.latlng.lng.toFixed(6);
+    stopPicking();
+}
+
+function renderGeofencesOnMap() {
+    if (geofenceLayer) map.removeLayer(geofenceLayer);
+    geofenceLayer = L.layerGroup(geofences.map(g =>
+        L.circle([g.latitude, g.longitude], {
+            radius: g.radius_m, color: "#8b8fa4", weight: 1.5, dashArray: "4 4",
+            fillOpacity: 0.06, interactive: false,
+        }).bindTooltip(g.name, { className: "geofence-label", direction: "center", permanent: false })
+    )).addTo(map);
+}
+
+// ── Users tab (admin) ────────────────────────────────────
+function initUsersTab() {
+    const form = document.getElementById("user-form");
+    document.getElementById("btn-add-user").addEventListener("click", () => {
+        form.hidden = false;
+        document.getElementById("btn-add-user").hidden = true;
+        document.getElementById("new-username").focus();
+    });
+    document.getElementById("btn-user-cancel").addEventListener("click", () => {
+        form.hidden = true;
+        document.getElementById("btn-add-user").hidden = false;
+    });
+    form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+            const u = await api("POST", "/api/admin/users", {
+                username: document.getElementById("new-username").value.trim(),
+                password: document.getElementById("new-password").value,
+                role: document.getElementById("new-role").value,
+            });
+            form.reset();
+            form.hidden = true;
+            document.getElementById("btn-add-user").hidden = false;
+            toast(`${u.username} created. Share some AirTags with them below.`, "success");
+            await loadUsers(u.id);
+        } catch (err) {
+            toast(err.message, "error");
+        }
+    });
+}
+
+// User cards whose AirTag access list is expanded; survives re-renders.
+const openAccess = new Set();
+
+async function loadUsers(expandId = null) {
+    if (!isAdmin()) return;
+    let users;
+    try { users = await fetchJSON("/api/admin/users"); } catch { return; }
+    const list = document.getElementById("user-list");
+    const openId = expandId || list.querySelector(".device-card.expanded")?.dataset.id;
+    list.innerHTML = "";
+
+    users.forEach(u => {
+        const card = document.createElement("div");
+        card.className = "device-card" + (u.id === openId ? " expanded" : "");
+        card.dataset.id = u.id;
+        const isSelf = u.id === me.id;
+        const methods = [u.has_password ? "password" : "", u.sso_linked ? "SSO" : ""].filter(Boolean).join(" + ") || "no sign-in method";
+        const shareCount = u.role === "admin" ? "all AirTags" : `${u.shares.length} AirTag${u.shares.length === 1 ? "" : "s"}`;
+        card.innerHTML = `
+            <div class="device-card-header">
+                <span class="avatar">${esc(u.username[0].toUpperCase())}</span>
+                <div class="device-card-info">
+                    <div class="device-card-name">${esc(u.username)} ${u.role === "admin" ? '<span class="badge">Admin</span>' : ""} ${isSelf ? '<span class="badge">You</span>' : ""}</div>
+                    <div class="device-card-meta">${methods} · ${shareCount} · ${u.last_login_at ? "last seen " + timeAgo(u.last_login_at) : "never signed in"}</div>
+                </div>
+                <svg class="device-card-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <div class="device-card-body">
+                <div class="device-setting">
+                    <span class="device-setting-label">Role</span>
+                    <div class="device-setting-value">
+                        <select class="user-role" ${isSelf ? "disabled" : ""}>
+                            <option value="user">User</option><option value="admin">Admin</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="device-setting">
+                    <span class="device-setting-label">Pushover key</span>
+                    <div class="device-setting-value inline-controls">
+                        <input type="text" class="pushover-key" value="${esc(u.pushover_user_key)}" placeholder="30-character user key" autocomplete="off" spellcheck="false">
+                        <button class="btn-small btn-save-pushover">Save</button>
+                    </div>
+                </div>
+                ${u.role === "admin" ? "" : `
+                <button class="access-toggle${openAccess.has(u.id) ? " open" : ""}">
+                    <span>AirTag access</span>
+                    <span class="access-count">${u.shares.length} of ${devices.length}</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                <div class="share-list access-list"${openAccess.has(u.id) ? "" : " hidden"}>${devices.length ? devices.map(d => {
+                    const s = u.shares.find(x => x.device_id === d.id);
+                    const v = s ? (s.can_edit ? "edit" : "view") : "";
+                    return `<div class="share-row"><span><span class="device-dot" style="background:${esc(d.color)}"></span> ${esc(d.name)}</span>
+                        <select data-device="${esc(d.id)}">
+                            <option value="" ${v === "" ? "selected" : ""}>No access</option>
+                            <option value="view" ${v === "view" ? "selected" : ""}>View</option>
+                            <option value="edit" ${v === "edit" ? "selected" : ""}>Edit</option>
+                        </select></div>`;
+                }).join("") : '<div class="setting-hint">No AirTags yet.</div>'}</div>`}
+                <div class="device-setting">
+                    <span class="device-setting-label">Password</span>
+                    <div class="device-setting-value inline-controls">
+                        <input type="text" class="reset-pw" placeholder="New temporary password" autocomplete="off">
+                        <button class="btn-small btn-reset-pw">Reset</button>
+                    </div>
+                </div>
+                ${isSelf ? "" : `<div class="device-card-actions"><button class="btn-delete">Delete user</button></div>`}
+            </div>`;
+
+        card.querySelector(".device-card-header").addEventListener("click", () => {
+            const was = card.classList.contains("expanded");
+            list.querySelectorAll(".device-card.expanded").forEach(c => c.classList.remove("expanded"));
+            if (!was) card.classList.add("expanded");
+        });
+
+        const role = card.querySelector(".user-role");
+        role.value = u.role;
+        role.addEventListener("change", async () => {
+            try {
+                await api("PATCH", `/api/admin/users/${u.id}`, { role: role.value });
+                toast(`${u.username} is now ${role.value === "admin" ? "an admin" : "a user"}`, "success");
+                await loadUsers(u.id);
+            } catch (e) { toast(e.message, "error"); role.value = u.role; }
+        });
+
+        card.querySelector(".access-toggle")?.addEventListener("click", (e) => {
+            const btn = e.currentTarget;
+            const open = btn.classList.toggle("open");
+            card.querySelector(".access-list").hidden = !open;
+            if (open) openAccess.add(u.id); else openAccess.delete(u.id);
+        });
+
+        const keyInput = card.querySelector(".pushover-key");
+        const saveKey = async () => {
+            const key = keyInput.value.trim();
+            if (key === (u.pushover_user_key || "")) return;
+            try {
+                const updated = await api("PATCH", `/api/admin/users/${u.id}`, { pushover_user_key: key });
+                u.pushover_user_key = updated.pushover_user_key;
+                if (u.id === me.id) { me.prefs.pushover_user_key = key || undefined; renderAccount(); }
+                toast(key ? `Pushover key saved for ${u.username}` : `Pushover key removed for ${u.username}`, "success");
+            } catch (e) { toast(e.message, "error"); }
+        };
+        card.querySelector(".btn-save-pushover").addEventListener("click", saveKey);
+        keyInput.addEventListener("keydown", (e) => { if (e.key === "Enter") saveKey(); });
+
+        card.querySelectorAll(".share-list select").forEach(sel => sel.addEventListener("change", async () => {
+            try {
+                await api("PUT", `/api/admin/devices/${sel.dataset.device}/shares/${u.id}`, { access: sel.value || null });
+                const s = u.shares.find(x => x.device_id === sel.dataset.device);
+                if (sel.value) {
+                    if (s) s.can_edit = sel.value === "edit";
+                    else u.shares.push({ device_id: sel.dataset.device, can_edit: sel.value === "edit" });
+                } else {
+                    u.shares = u.shares.filter(x => x.device_id !== sel.dataset.device);
+                }
+                card.querySelector(".access-count").textContent = `${u.shares.length} of ${devices.length}`;
+                card.querySelector(".device-card-meta").textContent =
+                    `${methods} · ${u.shares.length} AirTag${u.shares.length === 1 ? "" : "s"} · ${u.last_login_at ? "last seen " + timeAgo(u.last_login_at) : "never signed in"}`;
+            } catch (e) { toast(e.message, "error"); }
+        }));
+
+        card.querySelector(".btn-reset-pw").addEventListener("click", async () => {
+            const input = card.querySelector(".reset-pw");
+            try {
+                await api("POST", `/api/admin/users/${u.id}/reset-password`, { new_password: input.value });
+                input.value = "";
+                toast(`Password reset. ${u.username} will choose a new one at next sign-in.`, "success");
+            } catch (e) { toast(e.message, "error"); }
+        });
+
+        card.querySelector(".btn-delete")?.addEventListener("click", () => {
+            const body = card.querySelector(".device-card-body");
+            if (body.querySelector(".confirm-bar")) return;
+            const bar = document.createElement("div");
+            bar.className = "confirm-bar";
+            bar.innerHTML = `<span>Delete ${esc(u.username)}? Their places and alerts go too.</span>
+                <button class="btn-confirm-yes">Delete</button><button class="btn-confirm-no">Cancel</button>`;
+            bar.querySelector(".btn-confirm-yes").addEventListener("click", async () => {
+                try {
+                    await api("DELETE", `/api/admin/users/${u.id}`);
+                    toast(`${u.username} deleted`, "success");
+                    await loadUsers();
+                } catch (e) { toast(e.message, "error"); }
+            });
+            bar.querySelector(".btn-confirm-no").addEventListener("click", () => bar.remove());
+            body.appendChild(bar);
+        });
+
+        list.appendChild(card);
+    });
+}
+
+// ── General tab extras (admin) ───────────────────────────
+function initAdminSettings() {
+    document.getElementById("btn-save-pushover").addEventListener("click", async () => {
+        const input = document.getElementById("pushover-app-token");
+        try {
+            const r = await api("PUT", "/api/admin/notifications", { pushover_app_token: input.value.trim() });
+            input.value = "";
+            input.placeholder = r.pushover_app_token_set ? "set (unchanged)" : "not set";
+            toast(r.pushover_app_token_set ? "Pushover token saved" : "Pushover token cleared", "success");
+        } catch (e) { toast(e.message, "error"); }
+    });
+
+    document.getElementById("sso-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = {
+            oidc_enabled: document.getElementById("sso-enabled").checked,
+            public_url: document.getElementById("sso-public-url").value.trim(),
+            oidc_provider_url: document.getElementById("sso-provider").value.trim(),
+            oidc_client_id: document.getElementById("sso-client-id").value.trim(),
+            oidc_client_secret: document.getElementById("sso-client-secret").value,
+            oidc_button_label: document.getElementById("sso-label").value.trim(),
+            oidc_scopes: document.getElementById("sso-scopes").value.trim(),
+            oidc_auto_provision: document.getElementById("sso-auto-provision").checked,
+        };
+        try {
+            renderSso(await api("PUT", "/api/admin/sso", body));
+            authConfig = await api("GET", "/api/auth/config");
+            renderAccount();
+            toast("SSO settings saved", "success");
+        } catch (err) { toast(err.message, "error"); }
+    });
+}
+
+function renderSso(cfg) {
+    document.getElementById("sso-enabled").checked = cfg.oidc_enabled;
+    document.getElementById("sso-public-url").value = cfg.public_url || "";
+    document.getElementById("sso-provider").value = cfg.oidc_provider_url || "";
+    document.getElementById("sso-client-id").value = cfg.oidc_client_id || "";
+    document.getElementById("sso-client-secret").value = "";
+    document.getElementById("sso-client-secret").placeholder = cfg.oidc_client_secret_set ? "set (unchanged)" : "not set";
+    document.getElementById("sso-label").value = cfg.oidc_button_label || "";
+    document.getElementById("sso-scopes").value = cfg.oidc_scopes || "";
+    document.getElementById("sso-auto-provision").checked = cfg.oidc_auto_provision;
+    document.getElementById("sso-redirect-hint").textContent = `Redirect URI to register with your provider: ${cfg.redirect_uri_hint}`;
+}
+
+async function loadAdminSettings() {
+    if (!isAdmin()) return;
+    try {
+        const [sso, notif, apple] = await Promise.all([
+            fetchJSON("/api/admin/sso"), fetchJSON("/api/admin/notifications"), fetchJSON("/api/apple/status"),
+        ]);
+        renderSso(sso);
+        document.getElementById("pushover-app-token").placeholder = notif.pushover_app_token_set ? "set (unchanged)" : "not set";
+        document.getElementById("apple-account").textContent = apple.account || (apple.authenticated ? "Connected" : "Not connected");
+    } catch {}
+}
+
+// ── Apple account setup (admin) ──────────────────────────
+let selected2faMethod = null;
+
 function showSetup() {
-    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+    hideAllPages();
     document.getElementById("page-setup").classList.add("active");
-    document.getElementById("bottom-nav").style.display = "none";
+    document.getElementById("setup-not-admin").hidden = isAdmin();
 }
 
 function showApp() {
     document.getElementById("page-setup").classList.remove("active");
+    document.getElementById("page-login").classList.remove("active");
     document.getElementById("bottom-nav").style.display = "";
     navigateTo("page-map");
     loadDevices();
     loadSettings();
+    loadAlerts();
+    loadAdminSettings();
 }
 
 function initAuth() {
@@ -1071,12 +1879,7 @@ async function handleLogin() {
     btn.textContent = "Signing in...";
 
     try {
-        const res = await fetch("/api/auth/login", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email, password }),
-        });
-        const data = await res.json();
+        const data = await api("POST", "/api/apple/login", { email, password });
 
         if (data.status === "ok") {
             showApp();
@@ -1087,7 +1890,7 @@ async function handleLogin() {
             errorEl.style.display = "";
         }
     } catch (e) {
-        errorEl.textContent = "Network error: " + e.message;
+        errorEl.textContent = e.message;
         errorEl.style.display = "";
     } finally {
         btn.disabled = false;
@@ -1141,12 +1944,7 @@ async function handle2fa() {
     btn.textContent = "Verifying...";
 
     try {
-        const res = await fetch("/api/auth/2fa", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ method_id: selected2faMethod, code }),
-        });
-        const data = await res.json();
+        const data = await api("POST", "/api/apple/2fa", { method_id: selected2faMethod, code });
 
         if (data.status === "ok") {
             showApp();
@@ -1155,7 +1953,7 @@ async function handle2fa() {
             errorEl.style.display = "";
         }
     } catch (e) {
-        errorEl.textContent = "Network error: " + e.message;
+        errorEl.textContent = e.message;
         errorEl.style.display = "";
     } finally {
         btn.disabled = false;
