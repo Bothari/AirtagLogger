@@ -127,3 +127,15 @@ def test_delete_device_with_history(setup):
     with db() as conn:
         assert conn.execute("SELECT COUNT(*) FROM locations WHERE device_id='d1'").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM device_shares").fetchone()[0] == 0
+
+
+def test_admin_updates_return_the_device_they_changed(setup):
+    """An admin sees every device, so the single-device lookup must still filter
+    by id -- it once returned the first device instead (AND/OR precedence), and
+    the UI then redrew the wrong card, e.g. the hide toggle snapping back off."""
+    admin, alice, user = setup
+    for did in ("d1", "d2"):
+        r = admin.put(f"/api/devices/{did}/prefs", headers=H, json={"hidden": True})
+        assert (r.json()["id"], r.json()["hidden"]) == (did, 1)
+        r = admin.patch(f"/api/devices/{did}", headers=H, json={"color": "#34d399"})
+        assert r.json()["id"] == did

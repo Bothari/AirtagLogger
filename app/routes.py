@@ -46,7 +46,7 @@ DEVICE_SELECT = """
     FROM devices d
     LEFT JOIN user_device_prefs p ON p.device_id = d.id AND p.user_id = :uid
     LEFT JOIN device_shares s ON s.device_id = d.id AND s.user_id = :uid
-    WHERE :is_admin OR s.user_id IS NOT NULL
+    WHERE (:is_admin OR s.user_id IS NOT NULL)
 """
 
 
