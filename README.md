@@ -151,3 +151,7 @@ pytest
 
 The app is FastAPI (`app/`) serving a static front end (`static/`). Schema
 migrations run automatically at startup.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
