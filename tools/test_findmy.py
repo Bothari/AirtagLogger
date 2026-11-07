@@ -8,13 +8,13 @@ and supports fetching from multiple AirTags at once.
 
 Usage:
     # First run (will prompt for Apple ID + 2FA):
-    python3 test_findmy.py
+    python3 tools/test_findmy.py
 
     # Subsequent runs (uses saved session):
-    python3 test_findmy.py
+    python3 tools/test_findmy.py
 
     # Fetch a specific device only:
-    python3 test_findmy.py --device car-keys.json
+    python3 tools/test_findmy.py --device car-keys.json
 
 All state is stored in ./data/ (account session, anisette libs, device keys).
 """

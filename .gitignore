@@ -4,12 +4,15 @@ __pycache__/
 *.egg-info/
 venv/
 .venv/
+.pytest_cache/
 
 # Data (runtime state, not code)
 data/
 *.db
 
-# macOS VM artifacts
+# macOS VM artifacts (disk image, pinned identity)
+macos-vm/*
+!macos-vm/identity.env.example
 macos-start.log
 *.qcow2
 *.img

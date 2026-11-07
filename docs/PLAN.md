@@ -1,5 +1,10 @@
 # AirTag Logger - Project Plan
 
+> **Historical.** This is the original build plan from February 2026, kept for
+> its research notes (key extraction, macOS versions). The app has moved on --
+> multi-user accounts, SSO, sharing, geofences and alerts are not covered here.
+> See the [README](../README.md) for how it works today.
+
 ## Overview
 
 A self-hosted Docker application that periodically logs Apple AirTag locations and displays them on an interactive map via a local web interface.

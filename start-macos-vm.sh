@@ -20,14 +20,26 @@ fi
 
 CONTAINER_NAME="macos-monterey"
 
-# Fixed Mac identity. GENERATE_UNIQUE=true made a new serial every boot, which
-# signed iCloud out each time. This set is the one iCloud was signed in with on
-# 2026-11-04 -- changing it will force a fresh iCloud sign-in.
-DEVICE_MODEL="iMacPro1,1"
-SERIAL="REDACTED_SERIAL"
-BOARD_SERIAL="REDACTED_BOARD_SERIAL"
-UUID="REDACTED-UUID"
-MAC_ADDRESS="00:00:00:00:00:00"
+# Mac identity. Pin it in macos-vm/identity.env (gitignored) once iCloud is
+# signed in: a fresh identity on every boot signs iCloud out each time. See
+# macos-vm/identity.env.example. Without that file a unique set is generated.
+IDENTITY_FILE="$VM_DIR/identity.env"
+if [ -f "$IDENTITY_FILE" ]; then
+  # shellcheck source=/dev/null
+  . "$IDENTITY_FILE"
+  IDENTITY_ARGS=(
+    -e GENERATE_SPECIFIC=true
+    -e DEVICE_MODEL="$DEVICE_MODEL"
+    -e SERIAL="$SERIAL"
+    -e BOARD_SERIAL="$BOARD_SERIAL"
+    -e UUID="$UUID"
+    -e MAC_ADDRESS="$MAC_ADDRESS"
+  )
+else
+  echo "No $IDENTITY_FILE -- generating a unique Mac identity." >&2
+  echo "Copy the generated values into it once iCloud is signed in." >&2
+  IDENTITY_ARGS=(-e GENERATE_UNIQUE=true)
+fi
 
 # Screen resolution (baked into the OpenCore plist at container creation)
 WIDTH=1280
@@ -45,12 +57,7 @@ else
     -p 50922:10022 \
     -p 5999:5999 \
     -v "$DISK_IMG:/home/arch/OSX-KVM/mac_hdd_ng.img" \
-    -e GENERATE_SPECIFIC=true \
-    -e DEVICE_MODEL="$DEVICE_MODEL" \
-    -e SERIAL="$SERIAL" \
-    -e BOARD_SERIAL="$BOARD_SERIAL" \
-    -e UUID="$UUID" \
-    -e MAC_ADDRESS="$MAC_ADDRESS" \
+    "${IDENTITY_ARGS[@]}" \
     -e WIDTH="$WIDTH" \
     -e HEIGHT="$HEIGHT" \
     -e MASTER_PLIST_URL='https://raw.githubusercontent.com/sickcodes/osx-serial-generator/master/config-custom.plist' \
